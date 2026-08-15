@@ -11,6 +11,7 @@ import {
 import type { TreeMutationError } from '../data/layout'
 import { worldStorage } from '../data/persist'
 import { layoutConfig } from '../config'
+import { knowledgeAdapter } from '../demo/adapter'
 
 const { layout: LAYOUT } = layoutConfig
 
@@ -162,17 +163,14 @@ export const useWorldStore = create<WorldState>()((set, get) => {
       const s = get()
       const room = nearestRoom(s.world, at)
       const id = newId()
+      const attrs = knowledgeAdapter.createDefault({ groupPath: [room.wingName, room.name] })
       const node: LaidOutNode = {
-        id,
+        ...attrs,
+        // Authoritative cluster identity comes from the room, not the
+        // adapter's name-derived provisional ids.
         wingId: room.wingId,
-        wingName: room.wingName,
         roomId: room.id,
-        roomName: room.name,
-        title: 'Untitled note',
-        body: '',
-        tags: [],
-        embedding: new Array(8).fill(0),
-        createdAt: Date.now(),
+        id,
         position: at,
         color: room.color,
         hue: room.hue,
@@ -195,18 +193,14 @@ export const useWorldStore = create<WorldState>()((set, get) => {
       const radius = LAYOUT.childSpawnRadiusMin + Math.random() * LAYOUT.childSpawnRadiusSpread
       const relOffset: [number, number] = [Math.cos(angle) * radius, Math.sin(angle) * radius]
       const id = newId()
+      const attrs = knowledgeAdapter.createDefault({ groupPath: [parent.wingName, parent.roomName], parentId })
       const node: LaidOutNode = {
+        ...attrs,
+        // Authoritative cluster identity comes from the parent (see addNode).
+        wingId: parent.wingId,
+        roomId: parent.roomId,
         id,
         parentId,
-        wingId: parent.wingId,
-        wingName: parent.wingName,
-        roomId: parent.roomId,
-        roomName: parent.roomName,
-        title: 'Untitled note',
-        body: '',
-        tags: [],
-        embedding: new Array(8).fill(0),
-        createdAt: Date.now(),
         position: [parent.position[0] + relOffset[0], parent.position[1] + relOffset[1]],
         relOffset,
         color: parent.color,

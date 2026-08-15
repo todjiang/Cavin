@@ -1,6 +1,7 @@
+import { layoutConfig } from '../config'
 import type { KnowledgeNode } from '../demo/generate'
 import { generateNodes, TIME_MIN, TIME_MAX } from '../demo/generate'
-import { layoutConfig } from '../config'
+import { knowledgeAdapter } from '../demo/adapter'
 
 const { layout: LAYOUT } = layoutConfig
 
@@ -20,8 +21,8 @@ export interface LaidOutNode extends KnowledgeNode {
   confirmed?: boolean
   /** Free-placed: user-dropped position, exempt from the cluster/orbit home. */
   placed?: boolean
-  /** Internal: group path derived by the adapter during P2 generalization.
-      Not used by the current UI, but preserved on the node for migration. */
+  /** Internal seam for P2 generalization: the adapter-derived group path.
+      Not yet used by deriveWorld because the UI still consumes wing/room fields. */
   groupPath?: string[]
 }
 
@@ -113,10 +114,7 @@ function sortedWingIds(nodes: { wingId: string }[]): string[] {
  * scaled by embedding similarity. Pure — used only for the seeded first boot
  * (and demo reset); afterwards positions live in the store and persist.
  */
-/** Layout nodes for the demo. Uses the demo adapter to infer groupPath,
-    but keeps wing/room fields materialized for compatibility with the
-    existing UI during P2 generalization. */
-export function layoutNodes(raw: KnowledgeNode[], adapter: SchemaAdapter<KnowledgeNode> = DEMO_ADAPTER): LaidOutNode[] {
+export function layoutNodes(raw: KnowledgeNode[]): LaidOutNode[] {
   const rand = hashRand(0x1a7)
   const wingIds = sortedWingIds(raw)
 
@@ -154,16 +152,8 @@ export function layoutNodes(raw: KnowledgeNode[], adapter: SchemaAdapter<Knowled
   const gauss = () => (rand() + rand() + rand() - 1.5) * 2 // approx normal in [-3, 3]
   const nodes: LaidOutNode[] = raw.map((n) => {
     const wingIndex = wingIds.indexOf(n.wingId)
-    const groupPath = adapter.groupOf({ attributes: n })
-    const hue = hueForGroup(groupPath, adapter)
-    const base: LaidOutNode = {
-      id: n.id,
-      parentId: n.parentId,
-      position: [0, 0], // filled below
-      groupPath,
-      attributes: n,
-      state: {},
-    }
+    const hue = wingHue(wingIndex)
+    const base = { ...n, color: hsl(hue), hue }
 
     let laid: LaidOutNode
     if (n.parentId && laidById.has(n.parentId)) {
@@ -173,7 +163,7 @@ export function layoutNodes(raw: KnowledgeNode[], adapter: SchemaAdapter<Knowled
       laid = {
         ...base,
         position: [parent.position[0] + relOffset[0], parent.position[1] + relOffset[1]],
-        state: { relOffset },
+        relOffset,
       }
     } else {
       // Root: jitter around the room centroid, radius scaled by embedding similarity.
@@ -213,12 +203,14 @@ export function layoutNodes(raw: KnowledgeNode[], adapter: SchemaAdapter<Knowled
  */
 export function deriveWorld(rawNodes: LaidOutNode[], prev?: World): World {
   const wingIds = sortedWingIds(rawNodes)
-  const hueOf = (wid: string) => wingHue(wingIds.indexOf(wid))
 
-  // Fresh copies with (re)computed color/hue — callers may pass stored objects.
+  // Fresh copies with (re)computed color/hue and normalized groupPath — callers
+  // may pass stored objects. groupPath is adapter-derived; rooms/wings are still
+  // materialized from the legacy wing/room fields during this P2 stage.
   const nodes: LaidOutNode[] = rawNodes.map((n) => {
-    const hue = hueOf(n.wingId)
-    return { ...n, hue, color: hsl(hue) }
+    const groupPath = n.groupPath ?? knowledgeAdapter.groupOf({ attributes: n })
+    const hue = wingHue(wingIds.indexOf(n.wingId))
+    return { ...n, hue, color: hsl(hue), groupPath }
   })
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
 
