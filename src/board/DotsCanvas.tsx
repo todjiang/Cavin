@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { focusForSelection, hsla, smoothstep, timeFactor } from '../data/layout'
-import type { LaidOutNode, WingCluster } from '../data/layout'
+import type { GroupCluster, LaidOutNode } from '../data/layout'
 import { layoutConfig } from '../config'
 import { useViewStore } from '../store'
 import { useWorldStore } from '../store/world'
@@ -121,9 +121,11 @@ export function DotsCanvas() {
       const dotsLv = focus ? Math.max(lv.dots, focusK) : lv.dots
       const edgeLabelsOn = cam.zoom >= zRooms * 0.8
 
-      // Blurred blobs: soft wing glow + room blobs, rising as you zoom out.
+      // Blurred blobs: soft top-level glow + sub-group blobs, rising as you
+      // zoom out. Groups sliced by depth (0 = legacy wings, 1 = legacy rooms).
       if (lv.blobs > 0.01) {
-        for (const wing of world.wings) {
+        for (const wing of world.groups) {
+          if (wing.depth !== 0) continue
           const x = sx(wing.centroid[0])
           const y = sy(wing.centroid[1])
           const r = wing.radius * 1.15 * cam.zoom
@@ -134,7 +136,8 @@ export function DotsCanvas() {
           ctx.fillStyle = g
           ctx.fillRect(x - r, y - r, r * 2, r * 2)
         }
-        for (const room of world.rooms) {
+        for (const room of world.groups) {
+          if (room.depth !== 1) continue
           const x = sx(room.centroid[0])
           const y = sy(room.centroid[1])
           const r = room.radius * 1.6 * cam.zoom
@@ -148,24 +151,23 @@ export function DotsCanvas() {
         }
       }
 
-      // Cross-domain arcs, zoomed out: edges aggregate into wing↔wing
-      // bundles between centroids — a map of which domains are most
-      // entangled. A hue gradient along the arc reads as "from this domain
-      // to that one". While a selection is active, bundles carrying one of
-      // its edges stay bright and the rest step back.
+      // Cross-domain arcs, zoomed out: edges aggregate into top-level
+      // group↔group bundles between centroids — a map of which domains are
+      // most entangled. A hue gradient along the arc reads as "from this
+      // domain to that one". While a selection is active, bundles carrying
+      // one of its edges stay bright and the rest step back.
       if (lv.blobs > 0.01 && confirmedEdges.length > 0) {
         const bundles = new Map<
           string,
-          { a: WingCluster; b: WingCluster; count: number; spot: boolean }
+          { a: GroupCluster; b: GroupCluster; count: number; spot: boolean }
         >()
         for (const e of confirmedEdges) {
           const na = world.nodeById.get(e.from)
           const nb = world.nodeById.get(e.to)
-          if (!na || !nb || na.wingId === nb.wingId) continue
-          const [wa, wb] =
-            na.wingId < nb.wingId
-              ? ([na.wingId, nb.wingId] as const)
-              : ([nb.wingId, na.wingId] as const)
+          const ga = na?.groupPath?.[0]
+          const gb = nb?.groupPath?.[0]
+          if (!na || !nb || !ga || !gb || ga === gb) continue
+          const [wa, wb] = ga < gb ? ([ga, gb] as const) : ([gb, ga] as const)
           const key = `${wa}|${wb}`
           const spot = spotEdges.has(e.id)
           const bundle = bundles.get(key)
@@ -174,8 +176,8 @@ export function DotsCanvas() {
             bundle.spot ||= spot
           } else {
             bundles.set(key, {
-              a: world.wingById.get(wa)!,
-              b: world.wingById.get(wb)!,
+              a: world.groupByPath.get(wa)!,
+              b: world.groupByPath.get(wb)!,
               count: 1,
               spot,
             })

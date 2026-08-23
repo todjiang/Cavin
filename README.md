@@ -60,8 +60,8 @@ docs/
 The migration roadmap (in the architecture doc, §7) has five phases:
 
 - **P1 done** — constants collected into `LayoutConfig`; world/view stores decoupled (selection bridge in `App.tsx`).
-- **P2 partial** — `CavinNode`/`SchemaAdapter` types and the demo adapter exist; `deriveWorld` computes `groupPath`; node creation goes through `adapter.createDefault`. The UI still reads legacy note fields directly.
-- **P3–P5 pending** — extract `@cavin/core` (DOM-free engine) and `@cavin/react` (`<CavinCanvas/>`), move the palace to `examples/knowledge-palace`.
+- **P2 done** — `CavinNode`/`SchemaAdapter` types and the demo adapter exist; `deriveWorld` aggregates generic `world.groups` over `groupPath` (any depth) and all renderers read them; every UI field access goes through `labelOf`/`fields`/`searchTextOf` accessors (`src/core/accessors.ts`); node creation and edits go through the adapter (`createDefault`, descriptor-driven detail panel). Headless proof: `src/data/groups.test.ts` runs the same derive over 0/2/3-level groupings.
+- **P3–P5 pending** — extract `@cavin/core` (DOM-free engine, `CavinNode` becomes the real node shape, colors move behind `adapter.colorOf`) and `@cavin/react` (`<CavinCanvas/>` with the adapter injected), move the palace to `examples/knowledge-palace`.
 
 ## Status
 

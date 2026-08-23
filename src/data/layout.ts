@@ -22,8 +22,9 @@ export interface LaidOutNode extends KnowledgeNode {
   confirmed?: boolean
   /** Free-placed: user-dropped position, exempt from the cluster/orbit home. */
   placed?: boolean
-  /** Internal seam for P2 generalization: the adapter-derived group path.
-      Not yet used by deriveWorld because the UI still consumes wing/room fields. */
+  /** Adapter-derived group path, coarse → fine. `deriveWorld` aggregates the
+      generic `world.groups` from it; mutations that change a node's cluster
+      (re-parent) must keep it in sync with the legacy wing/room fields. */
   groupPath?: string[]
 }
 
@@ -49,13 +50,49 @@ export interface WingCluster {
   hue: number
 }
 
+/** Separator for group-path keys — cannot appear in a path segment. */
+const PATH_SEP = '\u0001'
+
+/** Group-path key: `GroupCluster.id` and the `groupByPath` lookup key. */
+export function groupPathKey(path: string[]): string {
+  return path.join(PATH_SEP)
+}
+
+/**
+ * A cluster of nodes at any grouping depth, aggregated from `groupPath`
+ * (replaces the hardcoded wing/room levels for renderers). Leaf clusters
+ * (deepest segment of a node's path) aggregate their member ROOTS; interior
+ * clusters aggregate their direct sub-clusters. `id` = path joined with
+ * PATH_SEP, so a depth-0 group's id is simply its top-level segment.
+ */
+export interface GroupCluster {
+  id: string
+  /** Cluster path, coarse → fine. */
+  path: string[]
+  /** Display name = last segment; breadcrumb = the whole path. */
+  name: string
+  /** 0 = top level (legacy wings), 1 = next level (legacy rooms), … */
+  depth: number
+  centroid: [number, number]
+  radius: number
+  count: number
+  color: string
+  hue: number
+}
+
 export interface World {
   nodes: LaidOutNode[]
   rooms: RoomCluster[]
   wings: WingCluster[]
+  /** Generic clusters at all grouping depths, sorted coarse → fine.
+      Renderers slice by `depth`; the legacy rooms/wings arrays above are
+      the same data materialized for the store's transitional callers. */
+  groups: GroupCluster[]
   nodeById: Map<string, LaidOutNode>
   roomById: Map<string, RoomCluster>
   wingById: Map<string, WingCluster>
+  /** Group path key (path joined with PATH_SEP) → cluster. */
+  groupByPath: Map<string, GroupCluster>
   /** Parent id → its children, sorted oldest-first. Key present only for parents. */
   childrenByParent: Map<string, LaidOutNode[]>
   /** Nesting depth: 0 = room-level root, 1 = child, 2 = grandchild, … */
@@ -325,6 +362,99 @@ export function deriveWorld(rawNodes: LaidOutNode[], prev?: World, confirmedEdge
     }
   })
 
+  // Generic group clusters over groupPath — the renderer-facing form of the
+  // same aggregates, at ARBITRARY depth. A cluster exists for every prefix of
+  // every node's path. Leaf clusters apply the room rules verbatim (grid-bound
+  // roots anchor the centroid, free-placed roots are excluded, an emptied
+  // cluster keeps its previous centroid); interior clusters apply the wing
+  // rules (centroid = mean of direct sub-cluster centroids, radius covers
+  // them). Ungrouped nodes (empty path) belong to no cluster.
+  interface GroupAgg {
+    path: string[]
+    key: string
+    /** Nodes whose full path equals this path, in node order (children included). */
+    members: LaidOutNode[]
+    /** Direct sub-cluster keys, in first-encounter order. */
+    children: string[]
+  }
+  const aggByKey = new Map<string, GroupAgg>()
+  for (const n of nodes) {
+    const path = n.groupPath ?? []
+    for (let d = 1; d <= path.length; d++) {
+      const p = path.slice(0, d)
+      const key = p.join(PATH_SEP)
+      let agg = aggByKey.get(key)
+      if (!agg) {
+        agg = { path: p, key, members: [], children: [] }
+        aggByKey.set(key, agg)
+        if (d > 1) {
+          // The parent prefix was created one iteration earlier in this walk.
+          aggByKey.get(path.slice(0, d - 1).join(PATH_SEP))!.children.push(key)
+        }
+      }
+      if (d === path.length) agg.members.push(n)
+    }
+  }
+  const clusterByKey = new Map<string, GroupCluster>()
+  // Deepest first, so interior clusters find their children already computed.
+  const aggsDeepFirst = [...aggByKey.values()].sort((a, b) => b.path.length - a.path.length)
+  for (const agg of aggsDeepFirst) {
+    const depth = agg.path.length - 1
+    let centroid: [number, number]
+    let radius: number
+    let count = agg.members.length
+    if (agg.children.length > 0) {
+      const kids = agg.children.map((k) => clusterByKey.get(k)!)
+      centroid = [0, 0]
+      for (const k of kids) {
+        centroid[0] += k.centroid[0] / kids.length
+        centroid[1] += k.centroid[1] / kids.length
+      }
+      radius = 0
+      for (const k of kids) {
+        const d = Math.hypot(k.centroid[0] - centroid[0], k.centroid[1] - centroid[1]) + k.radius
+        if (d > radius) radius = d
+      }
+      count += kids.reduce((s, k) => s + k.count, 0)
+    } else {
+      const roots = agg.members.filter((m) => !m.parentId)
+      const gridRoots = roots.filter((m) => !m.placed)
+      const anchor = gridRoots.length > 0 ? gridRoots : roots.length > 0 ? roots : agg.members
+      centroid = [0, 0]
+      for (const m of anchor) {
+        centroid[0] += m.position[0] / anchor.length
+        centroid[1] += m.position[1] / anchor.length
+      }
+      if (gridRoots.length === 0 && prev?.groupByPath.has(agg.key)) {
+        centroid = prev.groupByPath.get(agg.key)!.centroid
+      }
+      radius = LAYOUT.clusterRadiusMin
+      for (const m of gridRoots) {
+        const d = Math.hypot(m.position[0] - centroid[0], m.position[1] - centroid[1])
+        if (d > radius) radius = d
+      }
+    }
+    // Color follows the group: every member shares the top-level group's hue
+    // (today's wingHue scheme), so the first member — or the first child
+    // cluster — carries it. The adapter.colorOf hook stays reserved for P3.
+    const hue = agg.members[0]?.hue ?? clusterByKey.get(agg.children[0])!.hue
+    clusterByKey.set(agg.key, {
+      id: agg.key,
+      path: agg.path,
+      name: agg.path[depth],
+      depth,
+      centroid,
+      radius,
+      count,
+      color: hsl(hue),
+      hue,
+    })
+  }
+  // Coarse → fine, first-encounter order within a depth (stable paint order).
+  const groups = [...aggByKey.values()]
+    .sort((a, b) => a.path.length - b.path.length)
+    .map((a) => clusterByKey.get(a.key)!)
+
   // Cross-domain connections: machine-suggested pairs are recomputed from
   // layout vectors on every derive (domain = top-level group path); the
   // persisted confirmed list shadows matching suggestions. Dangling edges
@@ -347,9 +477,11 @@ export function deriveWorld(rawNodes: LaidOutNode[], prev?: World, confirmedEdge
     nodes,
     rooms,
     wings,
+    groups,
     nodeById,
     roomById: new Map(rooms.map((r) => [r.id, r])),
     wingById: new Map(wings.map((w) => [w.id, w])),
+    groupByPath: clusterByKey,
     childrenByParent,
     depthById,
     edges,
@@ -527,6 +659,10 @@ export function reparentNodes(
     wingName: parent.wingName,
     roomId: parent.roomId,
     roomName: parent.roomName,
+    // The subtree crosses into the new parent's group path too — groups are
+    // aggregated from groupPath, so leaving it stale would strand the moved
+    // nodes in their old cluster.
+    groupPath: [...(parent.groupPath ?? knowledgeAdapter.groupOf({ attributes: parent }))],
   }
   return {
     ok: true,

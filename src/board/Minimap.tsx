@@ -81,7 +81,8 @@ export function Minimap() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, MAP_W, MAP_H)
 
-      for (const wing of world.wings) {
+      for (const wing of world.groups) {
+        if (wing.depth !== 0) continue
         ctx.fillStyle = hsla(wing.hue, 0.12)
         ctx.beginPath()
         ctx.arc(toMapX(wing.centroid[0]), toMapY(wing.centroid[1]), wing.radius * scale, 0, Math.PI * 2)
@@ -111,7 +112,8 @@ export function Minimap() {
         ctx.fillStyle = color
         ctx.fillText(text, x, y)
       }
-      for (const wing of world.wings) {
+      for (const wing of world.groups) {
+        if (wing.depth !== 0) continue
         tryLabel(
           toMapX(wing.centroid[0]),
           toMapY(wing.centroid[1]),
@@ -120,7 +122,8 @@ export function Minimap() {
           '600 7px system-ui, sans-serif',
         )
       }
-      for (const room of world.rooms) {
+      for (const room of world.groups) {
+        if (room.depth !== 1) continue
         if (room.radius * scale < 9) continue
         tryLabel(
           toMapX(room.centroid[0]),

@@ -1,7 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { deletableSubtree } from '../data/layout'
+import type { LaidOutNode } from '../data/layout'
+import { labelOf, bodyOf, tagsOf } from '../core/accessors'
+import type { FieldDescriptor } from '../core/schema'
+import { knowledgeAdapter } from '../demo/adapter'
 import { useViewStore } from '../store'
 import { useWorldStore } from '../store/world'
+
+/** The edit form is generated from the adapter's editable field descriptors. */
+const EDITABLE = knowledgeAdapter.fields.filter((f) => f.kind !== 'readonly')
+/** The first text-kind field is the label field — required, autofocused. */
+const LABEL_FIELD = EDITABLE.find((f) => f.kind === 'text')
+
+/** A field's current value as edit-draft text (tags are comma-joined). */
+function fieldDraft(f: FieldDescriptor, node: LaidOutNode): string {
+  const v = (node as unknown as Record<string, unknown>)[f.key]
+  if (f.kind === 'tags') return Array.isArray(v) ? (v as string[]).join(', ') : ''
+  return typeof v === 'string' ? v : ''
+}
 
 /**
  * Right-side panel for the selected note. View mode shows content, the
@@ -31,14 +47,12 @@ export function DetailPanel() {
   const node = selectedId ? world.nodeById.get(selectedId) : undefined
   const editing = !!node && editingId === node.id
 
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [tags, setTags] = useState('')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [confirming, setConfirming] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [picking, setPicking] = useState(false)
   const [parentQuery, setParentQuery] = useState('')
-  const titleRef = useRef<HTMLInputElement>(null)
+  const labelRef = useRef<HTMLInputElement>(null)
 
   // Seed the draft fields when entering edit mode; reset confirm on selection change.
   useEffect(() => {
@@ -47,9 +61,9 @@ export function DetailPanel() {
     setPicking(false)
     setParentQuery('')
     if (editing && node) {
-      setTitle(node.title)
-      setBody(node.body)
-      setTags(node.tags.join(', '))
+      const next: Record<string, string> = {}
+      for (const f of EDITABLE) next[f.key] = fieldDraft(f, node)
+      setDrafts(next)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, selectedId])
@@ -57,14 +71,14 @@ export function DetailPanel() {
   if (!node) return null
 
   // Ancestor path, immediate parent first → render root-first.
-  const ancestors: { id: string; title: string }[] = []
+  const ancestors: { id: string; label: string }[] = []
   {
     let cur = node
     let guard = 0
     while (cur.parentId && guard++ < 32) {
       const parent = world.nodeById.get(cur.parentId)
       if (!parent) break
-      ancestors.unshift({ id: parent.id, title: parent.title })
+      ancestors.unshift({ id: parent.id, label: labelOf(knowledgeAdapter, parent) })
       cur = parent
     }
   }
@@ -106,10 +120,9 @@ export function DetailPanel() {
             !n.locked &&
             n.id !== node.parentId &&
             (!pq ||
-              n.title.toLowerCase().includes(pq) ||
-              n.roomName.toLowerCase().includes(pq) ||
-              n.wingName.toLowerCase().includes(pq) ||
-              n.tags.some((t) => t.toLowerCase().includes(pq))),
+              labelOf(knowledgeAdapter, n).toLowerCase().includes(pq) ||
+              (n.groupPath ?? []).some((g) => g.toLowerCase().includes(pq)) ||
+              tagsOf(knowledgeAdapter, n).some((t) => t.toLowerCase().includes(pq))),
         )
         .slice(0, 50)
     : []
@@ -120,19 +133,25 @@ export function DetailPanel() {
   }
 
   const save = () => {
-    if (!title.trim()) {
-      useWorldStore.getState().toast('Title is required')
-      titleRef.current?.focus()
+    if (LABEL_FIELD && !(drafts[LABEL_FIELD.key] ?? '').trim()) {
+      useWorldStore.getState().toast(`${LABEL_FIELD.label} is required`)
+      labelRef.current?.focus()
       return
     }
-    updateNode(node.id, {
-      title,
-      body,
-      tags: tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
-    })
+    const patch: Record<string, unknown> = {}
+    for (const f of EDITABLE) {
+      const raw = drafts[f.key] ?? ''
+      patch[f.key] =
+        f.kind === 'tags'
+          ? raw
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : f.kind === 'text'
+            ? raw.trim()
+            : raw
+    }
+    updateNode(node.id, patch)
     setEditing(null)
   }
 
@@ -144,7 +163,7 @@ export function DetailPanel() {
     setEditing(null)
   }
 
-  const dirty = editing && (title !== node.title || body !== node.body || tags !== node.tags.join(', '))
+  const dirty = editing && EDITABLE.some((f) => (drafts[f.key] ?? '') !== fieldDraft(f, node))
 
   return (
     <div className="detail-panel" style={{ borderColor: node.color }}>
@@ -152,14 +171,14 @@ export function DetailPanel() {
         ×
       </button>
       <div className="detail-crumb" style={{ color: node.color }}>
-        {node.wingName} / {node.roomName}
+        {(node.groupPath ?? []).join(' / ')}
         {ancestors.length > 0 && (
           <span className="detail-ancestors">
             {ancestors.map((a) => (
               <span key={a.id}>
                 {' / '}
                 <button className="detail-ancestor-link" onClick={() => select(a.id)}>
-                  {a.title}
+                  {a.label}
                 </button>
               </span>
             ))}
@@ -171,39 +190,36 @@ export function DetailPanel() {
 
       {editing ? (
         <div className="detail-edit">
-          <input
-            ref={titleRef}
-            className="detail-input"
-            value={title}
-            placeholder="Title"
-            autoFocus
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save()
-              if (e.key === 'Escape') cancel()
-            }}
-          />
-          <textarea
-            className="detail-textarea"
-            value={body}
-            placeholder="Write the note…"
-            rows={6}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
-              if (e.key === 'Escape') cancel()
-            }}
-          />
-          <input
-            className="detail-input"
-            value={tags}
-            placeholder="tags, comma, separated"
-            onChange={(e) => setTags(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save()
-              if (e.key === 'Escape') cancel()
-            }}
-          />
+          {EDITABLE.map((f) =>
+            f.kind === 'multiline' ? (
+              <textarea
+                key={f.key}
+                className="detail-textarea"
+                value={drafts[f.key] ?? ''}
+                placeholder={f.placeholder}
+                rows={6}
+                onChange={(e) => setDrafts((d) => ({ ...d, [f.key]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+                  if (e.key === 'Escape') cancel()
+                }}
+              />
+            ) : (
+              <input
+                key={f.key}
+                ref={f === LABEL_FIELD ? labelRef : undefined}
+                className="detail-input"
+                value={drafts[f.key] ?? ''}
+                placeholder={f.kind === 'text' ? f.label : f.placeholder}
+                autoFocus={f === LABEL_FIELD}
+                onChange={(e) => setDrafts((d) => ({ ...d, [f.key]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') save()
+                  if (e.key === 'Escape') cancel()
+                }}
+              />
+            ),
+          )}
           <div className="detail-actions">
             <button className="detail-btn primary" onClick={save} disabled={!dirty}>
               Save
@@ -226,10 +242,12 @@ export function DetailPanel() {
         </div>
       ) : (
         <>
-          <h2 className="detail-title">{node.title}</h2>
-          <p className="detail-body">{node.body || <span className="detail-empty">no content yet</span>}</p>
+          <h2 className="detail-title">{labelOf(knowledgeAdapter, node)}</h2>
+          <p className="detail-body">
+            {bodyOf(knowledgeAdapter, node) || <span className="detail-empty">no content yet</span>}
+          </p>
           <div className="detail-tags">
-            {node.tags.map((t) => (
+            {tagsOf(knowledgeAdapter, node).map((t) => (
               <span key={t} className="tag">
                 {t}
               </span>
@@ -241,7 +259,7 @@ export function DetailPanel() {
             <span className="detail-parent-label">parent</span>
             {parentNode ? (
               <button className="detail-ancestor-link" onClick={() => select(parentNode.id)}>
-                {parentNode.title}
+                {labelOf(knowledgeAdapter, parentNode)}
               </button>
             ) : (
               <span className="detail-parent-root">root note</span>
@@ -291,9 +309,9 @@ export function DetailPanel() {
                       setPicking(false)
                     }}
                   >
-                    <span className="parent-option-title">{c.title}</span>
+                    <span className="parent-option-title">{labelOf(knowledgeAdapter, c)}</span>
                     <span className="parent-option-crumb">
-                      {c.wingName} / {c.roomName}
+                      {(c.groupPath ?? []).join(' / ')}
                     </span>
                   </button>
                 ))}
@@ -313,7 +331,7 @@ export function DetailPanel() {
                   <button key={c.id} className="detail-child-row" onClick={() => select(c.id)}>
                     <span className="detail-child-name">
                       {c.locked ? '🔒 ' : ''}
-                      {c.title}
+                      {labelOf(knowledgeAdapter, c)}
                     </span>
                     {grandkids > 0 && <span className="detail-child-count">▸ {grandkids}</span>}
                   </button>
@@ -328,13 +346,13 @@ export function DetailPanel() {
               {confirmedConnections.map(({ edge, other }) => (
                 <div key={edge.id} className="detail-child-row">
                   <button className="detail-ancestor-link" onClick={() => select(other.id)}>
-                    {other.title}
+                    {labelOf(knowledgeAdapter, other)}
                   </button>
                   {edge.label && (
                     <span className="parent-option-crumb">{edge.label}</span>
                   )}
                   <span className="parent-option-crumb">
-                    {other.wingName} / {other.roomName}
+                    {(other.groupPath ?? []).join(' / ')}
                   </span>
                   <button
                     className="detail-btn detail-parent-change"
@@ -352,10 +370,10 @@ export function DetailPanel() {
                     title="Machine suggestion — confirm to keep it"
                     onClick={() => select(other.id)}
                   >
-                    ⤳ {other.title}
+                    ⤳ {labelOf(knowledgeAdapter, other)}
                   </button>
                   <span className="parent-option-crumb">
-                    {other.wingName} / {other.roomName}
+                    {(other.groupPath ?? []).join(' / ')}
                   </span>
                   {!node.locked && (
                     <button

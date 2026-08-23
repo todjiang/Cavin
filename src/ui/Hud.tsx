@@ -56,7 +56,8 @@ export function Hud() {
           <div className="hud-title">CAVIN · memory palace</div>
           <div className="hud-breadcrumb">{breadcrumb || '—'}</div>
           <div className="hud-counts">
-            {world.nodes.length} notes · {world.rooms.length} rooms · {world.wings.length} wings ·
+            {world.nodes.length} notes · {world.groups.filter((g) => g.depth === 1).length} rooms
+            · {world.groups.filter((g) => g.depth === 0).length} wings ·
             zoom {(zoom * 100).toFixed(0)}%
           </div>
           <div className="hud-actions">

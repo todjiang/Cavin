@@ -24,11 +24,15 @@ export function ClusterLabels() {
   const lv = lodLevels(zoom, zRooms, zCards)
   const dim = focusForSelection(world, selectedId) ? EDGES.focusLabelAlpha : 1
   const inv = 1 / zoom
+  // Generic groups sliced by depth: depth 0 plays the legacy "wing label"
+  // band, depth 1 the "room label" band.
+  const topGroups = world.groups.filter((g) => g.depth === 0)
+  const subGroups = world.groups.filter((g) => g.depth === 1)
 
   return (
     <>
       {lv.wings > 0.01 &&
-        world.wings.map((w) => (
+        topGroups.map((w) => (
           <div
             key={w.id}
             className="world-anchor"
@@ -44,7 +48,7 @@ export function ClusterLabels() {
           </div>
         ))}
       {lv.rooms > 0.01 &&
-        world.rooms.map((r) => (
+        subGroups.map((r) => (
           <div
             key={r.id}
             className="world-anchor"

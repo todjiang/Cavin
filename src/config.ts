@@ -87,6 +87,8 @@ export interface LayoutConfig {
     groupSpreadMax: number
     /** Gaussian sigma for items around their group centroid. */
     itemSigma: number
+    /** Minimum drawn radius of a leaf cluster (world units). */
+    clusterRadiusMin: number
     /** Gaussian sigma for a child's orbit around its parent. */
     childOrbitSigma: number
     /** Orbit radius for a freshly attached child (add-child / re-parent). */
@@ -215,6 +217,7 @@ export const layoutConfig: LayoutConfig = {
     groupSpreadMin: 250,
     groupSpreadMax: 420,
     itemSigma: 55,
+    clusterRadiusMin: 60,
     childOrbitSigma: 18,
     childSpawnRadiusMin: 16,
     childSpawnRadiusSpread: 12,

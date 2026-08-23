@@ -18,17 +18,18 @@ There is no linter or formatter configured — match surrounding style and let `
 2. **All tuning constants live in `src/config.ts`** (`layoutConfig`). Never introduce a bare numeric layout/LOD/interaction literal elsewhere.
 3. **The pure data layer stays pure.** `src/data/layout.ts` and `src/board/lod.ts` must remain DOM-free, React-free, and store-free — they are the future `@cavin/core`.
 4. **Store decoupling:** `src/store/world.ts` must never import `src/store.ts`. Cross-store effects go through `requestedSelection` + the bridge subscription in `src/App.tsx`.
-5. **Schema fields belong to the adapter.** New code must not read `title`/`body`/`tags`/`wingId`/`roomId` directly outside `src/demo/` and the legacy UI files that already do. Prefer `knowledgeAdapter.labelOf` / `groupOf` / `fields` in anything new.
+5. **Schema fields belong to the adapter.** No code outside `src/demo/`, `src/data/layout.ts` (legacy materialization), `src/store/world.ts` (node construction), and `src/data/persist.ts` may read `title`/`body`/`tags`/`wingId`/`roomId` directly. UI/board code goes through `src/core/accessors.ts` (`labelOf`/`tagsOf`/`bodyOf`) and the framework-level `groupPath`. `createdAt` is the documented exception (the time axis is a P3 adapter concern).
 
 ## Migration context (read before refactoring)
 
-We are mid-roadmap (doc §7). P1 done, P2 partial, P3–P5 pending. Known transitional artifacts — do not "fix" them without understanding why they exist:
+We are mid-roadmap (doc §7). P1–P2 done, P3–P5 pending. Known transitional artifacts — do not "fix" them without understanding why they exist:
 
 - `LaidOutNode` still extends the legacy flat `KnowledgeNode` shape so the UI compiles unchanged; `CavinNode<TAttr>` (`src/core/schema.ts`) is the target model.
-- `groupPath` on nodes is **write-only** (computed in `deriveWorld`, consumed by nothing yet) — a forward seam for P2-full, not dead code to delete.
+- `groupPath` on nodes is the source of truth for clustering: `deriveWorld` aggregates the generic `world.groups` from it, and every mutation that changes a node's cluster (`reparentNodes`) must keep it in sync with the legacy wing/room fields.
+- The legacy `world.rooms`/`world.wings` arrays are still materialized for the store's transitional callers (`nearestRoom`, `addNode`/`addChild` authoritative ids). Renderers read `world.groups` — do not reintroduce rooms/wings reads in `src/board`/`src/ui`.
 - `knowledgeAdapter.createDefault` returns *provisional* wing/room ids derived from display names; `src/store/world.ts` overrides them with authoritative cluster ids. Never trust the adapter's ids for clustering.
 - `validate` in the adapter decodes the legacy flat persisted shape; persistence itself still writes that shape (`src/data/persist.ts`).
-- Colors/hues come from index-based `wingHue` in `layout.ts`, not from `adapter.colorOf` — that hook is reserved.
+- Colors/hues come from index-based `wingHue` in `layout.ts`, not from `adapter.colorOf` — that hook is reserved for P3. `GroupCluster` inherits hue from its members, so the swap stays local to `deriveWorld`.
 
 ## Testing expectations
 

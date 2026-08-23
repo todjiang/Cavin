@@ -20,7 +20,7 @@ may import from this directory.
 | `src/types.ts` | example-owned data types and timeline constants |
 | `src/personae.ts` | curated people (288 records) |
 | `src/generate.ts` | deterministic `generateSanguoNodes()` + time-span helpers |
-| `src/relations.ts` | explicit relationship edges (104 relations) |
+| `src/relations.ts` | explicit relationship edges (339 relations) |
 | `src/generate.test.ts` | data invariants |
 | `src/relations.test.ts` | relationship invariants |
 

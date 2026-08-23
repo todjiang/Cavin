@@ -31,6 +31,7 @@ lerna-debug.log*
 # Testing
 coverage/
 *.lcov
+gui-test-screenshots/
 
 # TypeScript
 *.tsbuildinfo

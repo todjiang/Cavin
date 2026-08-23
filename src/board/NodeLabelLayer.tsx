@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { focusForSelection, smoothstep, timeFactor } from '../data/layout'
 import type { LaidOutNode } from '../data/layout'
+import { bodyOf, labelOf, tagsOf } from '../core/accessors'
+import { knowledgeAdapter } from '../demo/adapter'
 import { useViewStore } from '../store'
 import { useWorldStore } from '../store/world'
 import { layoutConfig } from '../config'
@@ -130,12 +132,13 @@ export function NodeLabelLayer() {
     }
 
     const syncLabelContent = (el: HTMLElement, n: LaidOutNode, kids: number) => {
-      const sig = `${n.locked ? 1 : 0}|${n.title}|${kids}|${n.placed ? 1 : 0}`
+      const label = labelOf(knowledgeAdapter, n)
+      const sig = `${n.locked ? 1 : 0}|${label}|${kids}|${n.placed ? 1 : 0}`
       if (sigById.get(n.id) === sig) return
       sigById.set(n.id, sig)
       el.replaceChildren()
       if (n.locked) el.append(document.createTextNode('🔒 '))
-      el.append(document.createTextNode(n.title))
+      el.append(document.createTextNode(label))
       if (kids > 0) {
         const s = document.createElement('span')
         s.className = 'chip-kids'
@@ -146,7 +149,7 @@ export function NodeLabelLayer() {
         const s = document.createElement('span')
         s.className = 'chip-placed'
         s.textContent = '⌖'
-        s.title = n.parentId ? 'Placed — pinned outside the parent orbit' : 'Placed — position pinned'
+        s.setAttribute('title', n.parentId ? 'Placed — pinned outside the parent orbit' : 'Placed — position pinned')
         el.append(s)
       }
     }
@@ -298,7 +301,7 @@ export function NodeLabelLayer() {
 
       const box = (l: Label): Placed => {
         const kids = world.childrenByParent.get(l.node.id)?.length ?? 0
-        const cw = estimateWidth(l.node.title, kids, fontScale)
+        const cw = estimateWidth(labelOf(knowledgeAdapter, l.node), kids, fontScale)
         if (l.place === 'below') {
           return { x0: l.ax - cw / 2 - 2, y0: l.ay - 2, x1: l.ax + cw / 2 + 2, y1: l.ay + chipH + 2 }
         }
@@ -402,10 +405,10 @@ export function NodeLabelLayer() {
         if (n && pos) {
           if (previewFilled !== hoverId) {
             previewFilled = hoverId
-            previewTitle.textContent = n.title
-            previewBody.textContent = n.body
+            previewTitle.textContent = labelOf(knowledgeAdapter, n)
+            previewBody.textContent = bodyOf(knowledgeAdapter, n)
             previewTags.replaceChildren(
-              ...n.tags.map((t) => {
+              ...tagsOf(knowledgeAdapter, n).map((t) => {
                 const s = document.createElement('span')
                 s.className = 'tag'
                 s.textContent = t

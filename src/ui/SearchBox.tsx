@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LaidOutNode } from '../data/layout'
+import { bodyOf, labelOf, tagsOf } from '../core/accessors'
+import { knowledgeAdapter } from '../demo/adapter'
 import { useViewStore } from '../store'
 import { useWorldStore } from '../store/world'
 
 const MAX_RESULTS = 8
 
+/** Ranking mirrors the field descriptors: label prefix > label > tags > body. */
 function score(node: LaidOutNode, q: string): number {
-  const title = node.title.toLowerCase()
-  if (title.startsWith(q)) return 4
-  if (title.includes(q)) return 3
-  if (node.tags.some((t) => t.toLowerCase().includes(q))) return 2
-  if (node.body.toLowerCase().includes(q)) return 1
+  const label = labelOf(knowledgeAdapter, node).toLowerCase()
+  if (label.startsWith(q)) return 4
+  if (label.includes(q)) return 3
+  if (tagsOf(knowledgeAdapter, node).some((t) => t.toLowerCase().includes(q))) return 2
+  if (bodyOf(knowledgeAdapter, node).toLowerCase().includes(q)) return 1
   return 0
 }
 
@@ -109,6 +112,7 @@ export function SearchBox() {
           {results.map((n, i) => {
             const parent = n.parentId ? world.nodeById.get(n.parentId) : undefined
             const kids = world.childrenByParent.get(n.id)?.length ?? 0
+            const tags = tagsOf(knowledgeAdapter, n)
             return (
               <div
                 key={n.id}
@@ -121,13 +125,13 @@ export function SearchBox() {
               >
                 <span className="search-result-title">
                   {n.locked ? '🔒 ' : ''}
-                  <Highlight text={n.title} q={query.trim().toLowerCase()} />
+                  <Highlight text={labelOf(knowledgeAdapter, n)} q={query.trim().toLowerCase()} />
                 </span>
                 <span className="search-result-crumb" style={{ color: n.color }}>
-                  {n.wingName} / {n.roomName}
-                  {parent ? ` / ${parent.title}` : ''}
+                  {(n.groupPath ?? []).join(' / ')}
+                  {parent ? ` / ${labelOf(knowledgeAdapter, parent)}` : ''}
                   {kids > 0 ? ` · ▸${kids}` : ''}
-                  {n.tags.length > 0 ? ` · ${n.tags.join(' ')}` : ''}
+                  {tags.length > 0 ? ` · ${tags.join(' ')}` : ''}
                 </span>
               </div>
             )

@@ -161,11 +161,16 @@ export function focusRingTargets(
   center: [number, number],
   zoom: number,
 ): Map<string, [number, number]> {
+  // Neighbors grouped by their top-level group so related domains sit
+  // adjacent on the ring, hubs first within a group. Group order follows
+  // world.groups (first-encounter order — stable across re-derivations).
+  const topOrder = new Map<string, number>()
+  for (const g of world.groups) if (g.depth === 0) topOrder.set(g.id, topOrder.size)
   const ids = [...focus.ringIds].sort((a, b) => {
     const na = world.nodeById.get(a)!
     const nb = world.nodeById.get(b)!
     return (
-      na.wingId.localeCompare(nb.wingId) ||
+      (topOrder.get(na.groupPath?.[0] ?? '') ?? 0) - (topOrder.get(nb.groupPath?.[0] ?? '') ?? 0) ||
       (world.degreeById.get(b) ?? 0) - (world.degreeById.get(a) ?? 0) ||
       a.localeCompare(b)
     )

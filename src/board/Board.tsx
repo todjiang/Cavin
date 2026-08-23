@@ -81,17 +81,22 @@ export function Board() {
         if (now - lastCrumbAt > 200) {
           lastCrumbAt = now
           const { cam } = useViewStore.getState()
-          const { rooms } = useWorldStore.getState().world
-          let best: (typeof rooms)[number] | null = null
+          const { groups } = useWorldStore.getState().world
+          // Breadcrumb = the nearest group's full path, taken at the deepest
+          // grouping level present (the legacy "room" level in the demo).
+          let maxDepth = -1
+          for (const g of groups) if (g.depth > maxDepth) maxDepth = g.depth
+          let best: (typeof groups)[number] | null = null
           let bestD = Infinity
-          for (const r of rooms) {
-            const d = Math.hypot(r.centroid[0] - cam.x, r.centroid[1] - cam.y)
+          for (const g of groups) {
+            if (g.depth !== maxDepth) continue
+            const d = Math.hypot(g.centroid[0] - cam.x, g.centroid[1] - cam.y)
             if (d < bestD) {
               bestD = d
-              best = r
+              best = g
             }
           }
-          const crumb = best ? `${best.wingName} / ${best.name}` : ''
+          const crumb = best ? best.path.join(' / ') : ''
           if (crumb !== lastBreadcrumb) {
             lastBreadcrumb = crumb
             useViewStore.getState().setBreadcrumb(crumb)

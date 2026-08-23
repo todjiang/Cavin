@@ -11,6 +11,7 @@ import type { TreeMutationError } from '../data/layout'
 import type { CavinEdge, WorldEdge } from '../data/edges'
 import { worldStorage } from '../data/persist'
 import { layoutConfig } from '../config'
+import { labelOf } from '../core/accessors'
 import { knowledgeAdapter } from '../demo/adapter'
 import { buildDatasetWorld, datasetById } from '../demo/datasets'
 
@@ -19,12 +20,6 @@ const { layout: LAYOUT } = layoutConfig
 export interface ToastMsg {
   id: number
   text: string
-}
-
-export interface NodePatch {
-  title?: string
-  body?: string
-  tags?: string[]
 }
 
 export interface WorldState {
@@ -50,8 +45,9 @@ export interface WorldState {
   addNode: (at: [number, number]) => string
   /** Create a child of the given note; expands the chain, selects + opens editor. */
   addChild: (parentId: string) => string
-  /** Edit title/body/tags. No-op (toast) when locked. */
-  updateNode: (id: string, patch: NodePatch) => void
+  /** Apply an attribute patch (keys from the adapter's field descriptors).
+      No-op (toast) when locked. */
+  updateNode: (id: string, patch: Record<string, unknown>) => void
   /** Move + free-place a node; the movable subtree follows (locked branches stay). */
   moveNode: (id: string, pos: [number, number]) => void
   /** Re-parent a node under another (drag-drop or panel picker); the subtree
@@ -247,17 +243,10 @@ export const useWorldStore = create<WorldState>()((set, get) => {
     updateNode: (id, patch) => {
       const node = get().world.nodeById.get(id)
       if (!node || !lockedGuard(node)) return
+      // The patch's keys are adapter attribute keys; on the legacy flat node
+      // they land at the top level (P3 moves them under `attributes`).
       mutate((nodes) =>
-        nodes.map((n) =>
-          n.id === id
-            ? {
-                ...n,
-                title: (patch.title ?? n.title).trim() || 'Untitled note',
-                body: patch.body ?? n.body,
-                tags: patch.tags ?? n.tags,
-              }
-            : n,
-        ),
+        nodes.map((n) => (n.id === id ? ({ ...n, ...patch } as LaidOutNode) : n)),
       )
       get().toast('Saved')
     },
@@ -302,7 +291,7 @@ export const useWorldStore = create<WorldState>()((set, get) => {
         get().toast('Back in orbit')
       } else {
         const parent = s.world.nodeById.get(newParentId)
-        get().toast(`Moved under “${parent?.title ?? 'note'}”`)
+        get().toast(`Moved under “${parent ? labelOf(knowledgeAdapter, parent) : 'note'}”`)
       }
     },
 
