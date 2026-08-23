@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { LaidOutNode, World } from '../data/layout'
 import {
-  buildInitialWorld,
   deletableSubtree,
   deriveWorld,
   movableSubtree,
@@ -13,6 +12,7 @@ import type { CavinEdge, WorldEdge } from '../data/edges'
 import { worldStorage } from '../data/persist'
 import { layoutConfig } from '../config'
 import { knowledgeAdapter } from '../demo/adapter'
+import { buildDatasetWorld, datasetById } from '../demo/datasets'
 
 const { layout: LAYOUT } = layoutConfig
 
@@ -32,6 +32,8 @@ export interface WorldState {
   /** Human-confirmed cross-domain connections (persisted). The renderable
       edge list — confirmed + machine-suggested — lives on `world.edges`. */
   edges: CavinEdge[]
+  /** Which demo dataset the current world came from (persisted with it). */
+  datasetId: string
   /** Node currently open in edit mode in the DetailPanel (must equal selectedId). */
   editingId: string | null
   toasts: ToastMsg[]
@@ -69,8 +71,11 @@ export interface WorldState {
   confirmEdge: (edge: WorldEdge) => void
   /** Remove a confirmed connection. */
   unlinkEdge: (id: string) => void
-  /** Wipe localStorage and regenerate the seeded palace. */
+  /** Wipe localStorage and rebuild the CURRENT dataset fresh. */
   resetDemo: () => void
+  /** Replace the world with another demo dataset (registry in
+      src/demo/datasets.ts); edits to the current one are discarded. */
+  loadDataset: (id: string) => void
 
   setEditing: (id: string | null) => void
   toast: (text: string) => void
@@ -79,17 +84,22 @@ export interface WorldState {
 
 let toastSeq = 0
 
-/** Boot: restore the persisted world if present, else the seeded palace. */
-function boot(): { world: World; edges: CavinEdge[] } {
+/** Boot: restore the persisted world if present, else the default dataset. */
+function boot(): { world: World; edges: CavinEdge[]; datasetId: string } {
   const stored = worldStorage.load()
   if (stored) {
     try {
-      return { world: deriveWorld(stored.nodes, undefined, stored.edges), edges: stored.edges }
+      return {
+        world: deriveWorld(stored.nodes, undefined, stored.edges),
+        edges: stored.edges,
+        datasetId: datasetById(stored.dataset).id,
+      }
     } catch {
-      // Corrupt shape — fall through to the seeded world.
+      // Corrupt shape — fall through to the default dataset.
     }
   }
-  return { world: buildInitialWorld(), edges: [] }
+  const built = buildDatasetWorld(undefined)
+  return { ...built, datasetId: datasetById(undefined).id }
 }
 
 function nearestRoom(world: World, at: [number, number]) {
@@ -174,6 +184,7 @@ export const useWorldStore = create<WorldState>()((set, get) => {
   return {
     world: initial.world,
     edges: initial.edges,
+    datasetId: initial.datasetId,
     editingId: null,
     toasts: [],
     requestedSelection: null,
@@ -362,8 +373,18 @@ export const useWorldStore = create<WorldState>()((set, get) => {
 
     resetDemo: () => {
       worldStorage.clear()
-      set({ world: buildInitialWorld(), edges: [], editingId: null })
+      const built = buildDatasetWorld(get().datasetId)
+      set({ world: built.world, edges: built.edges, editingId: null })
       get().toast('Demo data restored')
+    },
+
+    loadDataset: (id) => {
+      const dataset = datasetById(id)
+      if (dataset.id === get().datasetId) return
+      worldStorage.clear()
+      const built = buildDatasetWorld(dataset.id)
+      set({ world: built.world, edges: built.edges, datasetId: dataset.id, editingId: null })
+      get().toast(`Switched to ${dataset.label}`)
     },
 
     setEditing: (id) => set({ editingId: id }),
@@ -379,11 +400,11 @@ export const useWorldStore = create<WorldState>()((set, get) => {
 let saveTimer: number | undefined
 let lastSaveWarned = false
 useWorldStore.subscribe((s, prev) => {
-  if (s.world === prev.world && s.edges === prev.edges) return
+  if (s.world === prev.world && s.edges === prev.edges && s.datasetId === prev.datasetId) return
   window.clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => {
     const state = useWorldStore.getState()
-    const ok = worldStorage.save(state.world.nodes, state.edges)
+    const ok = worldStorage.save(state.world.nodes, state.edges, state.datasetId)
     if (!ok && !lastSaveWarned) {
       lastSaveWarned = true
       useWorldStore.getState().toast('Storage full — changes won’t persist')

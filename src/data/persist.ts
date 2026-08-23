@@ -15,13 +15,17 @@ export interface WorldPayload {
   /** Human-confirmed cross-domain connections; suggested edges are derived
       at load and never persisted. */
   edges: CavinEdge[]
+  /** Which demo dataset this world came from (registry id in
+      src/demo/datasets.ts) — so "reset demo" can rebuild the CURRENT
+      dataset. Absent in payloads written before the switcher existed. */
+  dataset?: string
 }
 
 export interface WorldStorage {
   /** Restore the persisted payload, or null when absent/corrupt. */
   load(): WorldPayload | null
   /** Returns true on success; false when the save was rejected (quota/privacy). */
-  save(nodes: LaidOutNode[], edges: CavinEdge[]): boolean
+  save(nodes: LaidOutNode[], edges: CavinEdge[], dataset?: string): boolean
   clear(): void
   /**
    * External-change notification (another tab today, a server push tomorrow).
@@ -75,7 +79,8 @@ function parsePayload(raw: string | null): WorldPayload | null {
   }
   const rawEdges = Array.isArray(parsed) ? [] : parsed?.edges
   const edges: CavinEdge[] = Array.isArray(rawEdges) ? rawEdges.filter(validEdge) : []
-  return { nodes, edges }
+  const dataset = !Array.isArray(parsed) && typeof parsed?.dataset === 'string' ? parsed.dataset : undefined
+  return { nodes, edges, dataset }
 }
 
 const DEFAULT_KEY = 'cavin-world-v3'
@@ -91,9 +96,9 @@ export function createLocalStorageWorldStorage(key = DEFAULT_KEY): WorldStorage 
         return null
       }
     },
-    save(nodes, edges) {
+    save(nodes, edges, dataset) {
       try {
-        window.localStorage.setItem(key, JSON.stringify({ nodes, edges }))
+        window.localStorage.setItem(key, JSON.stringify({ nodes, edges, dataset }))
         return true
       } catch (err) {
         console.warn('[cavin] failed to persist world', err)

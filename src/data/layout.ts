@@ -1,6 +1,5 @@
 import { layoutConfig } from '../config'
-import type { KnowledgeNode } from '../demo/generate'
-import { generateNodes, TIME_MIN, TIME_MAX } from '../demo/generate'
+import type { KnowledgeNode } from '../../examples/machine-learning/generate'
 import { knowledgeAdapter } from '../demo/adapter'
 import type { CavinEdge, WorldEdge } from './edges'
 import { indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
@@ -570,16 +569,23 @@ export function promoteToRootNodes(nodes: LaidOutNode[], id: string): TreeMutati
   }
 }
 
-/** First boot / demo reset: generate the seeded palace and lay it out. */
-export function buildInitialWorld(): World {
-  return deriveWorld(layoutNodes(generateNodes()))
-}
-
 /** smoothstep(a, b, x) */
 export function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
 }
+
+/**
+ * Time-slider domain: "today at midnight" back 730 days. These used to live
+ * in the machine-learning dataset generator; the slider itself is a
+ * rendering concern, so the domain lives here. Datasets with their own era
+ * axis (sanguo's 184–280) are a P3 adapter concern.
+ */
+const DAY_MS = 24 * 60 * 60 * 1000
+const NOW = new Date()
+NOW.setHours(0, 0, 0, 0)
+const TIME_MIN = NOW.getTime() - 731 * DAY_MS
+const TIME_MAX = NOW.getTime()
 
 /**
  * Time-dimension factor in [0,1]: at timeT=0 everything is bright; as the slider

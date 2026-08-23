@@ -11,7 +11,6 @@
 import { generateSanguoNodes } from '../src/generate'
 import { computePlacement } from '../src/placement'
 import { generateSanguoEdges } from '../src/relations'
-import type { SanguoNode } from '../src/types'
 import { CAMPS, ROLES } from '../src/types'
 
 const STORAGE_KEY = 'cavin-world-v3'

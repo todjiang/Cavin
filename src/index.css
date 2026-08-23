@@ -180,8 +180,30 @@ canvas {
 
 .hud-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0 2px;
+}
+
+.hud-select {
+  font: inherit;
+  font-size: 10px;
+  padding: 4px 6px;
+  color: #a9b4c8;
+  background: rgba(110, 168, 255, 0.07);
+  border: 1px solid #3a465e;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.hud-select:hover {
+  color: #eef2fa;
+  border-color: #6ea8ff;
+}
+
+.hud-select option {
+  background: #0c1220;
+  color: #c3cede;
 }
 
 .hud-button {

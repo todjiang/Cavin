@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useViewStore } from '../store'
 import { useWorldStore } from '../store/world'
+import { DEMO_DATASETS } from '../demo/datasets'
 import { DimensionSlider } from './DimensionSlider'
 
 export function Hud() {
@@ -15,6 +16,8 @@ export function Hud() {
   const world = useWorldStore((s) => s.world)
   const addNode = useWorldStore((s) => s.addNode)
   const resetDemo = useWorldStore((s) => s.resetDemo)
+  const datasetId = useWorldStore((s) => s.datasetId)
+  const loadDataset = useWorldStore((s) => s.loadDataset)
 
   // Two-step confirm for the destructive reset: first click arms, second fires.
   const [arming, setArming] = useState(false)
@@ -30,6 +33,22 @@ export function Hud() {
     resetDemo()
   }
 
+  // Dataset switch: same two-step arm as reset — switching discards the
+  // current world's edits, so a stray select change must not fire it.
+  const [pendingDataset, setPendingDataset] = useState<string | null>(null)
+  const datasetTimer = useRef<number | undefined>(undefined)
+  const armDatasetSwitch = (id: string) => {
+    window.clearTimeout(datasetTimer.current)
+    setPendingDataset(id)
+    datasetTimer.current = window.setTimeout(() => setPendingDataset(null), 3000)
+  }
+  const confirmDatasetSwitch = () => {
+    window.clearTimeout(datasetTimer.current)
+    if (pendingDataset) loadDataset(pendingDataset)
+    setPendingDataset(null)
+  }
+  const pendingLabel = DEMO_DATASETS.find((d) => d.id === pendingDataset)?.label
+
   return (
     <div className="hud">
       <div className="hud-top">
@@ -41,6 +60,26 @@ export function Hud() {
             zoom {(zoom * 100).toFixed(0)}%
           </div>
           <div className="hud-actions">
+            <select
+              className="hud-select"
+              title="Demo dataset — switching discards edits to the current one"
+              value={pendingDataset ?? datasetId}
+              onChange={(e) => {
+                if (e.target.value === datasetId) setPendingDataset(null)
+                else armDatasetSwitch(e.target.value)
+              }}
+            >
+              {DEMO_DATASETS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+            {pendingDataset && (
+              <button className="hud-button danger" onClick={confirmDatasetSwitch}>
+                switch to {pendingLabel} — sure?
+              </button>
+            )}
             <button
               className="hud-button"
               title="New note at the viewport center (N)"

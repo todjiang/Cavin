@@ -1,5 +1,5 @@
 import type { SchemaAdapter } from '../core/schema'
-import type { KnowledgeNode } from './generate'
+import type { KnowledgeNode } from '../../examples/machine-learning/generate'
 
 /** Attributes-only view of the demo schema: identity (id/parentId) is
     framework-owned, so the adapter contract never sees it. */
