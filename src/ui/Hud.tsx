@@ -9,6 +9,8 @@ export function Hud() {
   const zCards = useViewStore((s) => s.zCards)
   const setZRooms = useViewStore((s) => s.setZRooms)
   const setZCards = useViewStore((s) => s.setZCards)
+  const labelFont = useViewStore((s) => s.labelFont)
+  const setLabelFont = useViewStore((s) => s.setLabelFont)
   const breadcrumb = useViewStore((s) => s.breadcrumb)
   const world = useWorldStore((s) => s.world)
   const addNode = useWorldStore((s) => s.addNode)
@@ -77,6 +79,17 @@ export function Hud() {
               step={0.01}
               value={zCards}
               onChange={(e) => setZCards(Number(e.target.value))}
+            />
+          </label>
+          <label className="hud-slider">
+            <span>label font · {labelFont}px</span>
+            <input
+              type="range"
+              min={10}
+              max={18}
+              step={1}
+              value={labelFont}
+              onChange={(e) => setLabelFont(Number(e.target.value))}
             />
           </label>
         </div>

@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent }
 import { useViewStore, MIN_ZOOM, MAX_ZOOM } from '../store'
 import type { Camera } from '../store'
 import { useWorldStore } from '../store/world'
+import { focusForSelection } from '../data/layout'
 import { revealZoom, visibleNodes } from './lod'
 import type { RoomMorph } from './lod'
 import { layoutConfig } from '../config'
@@ -141,9 +142,19 @@ export function Board() {
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
       const z0 = s.cam.zoom
       const z1 = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z0 * Math.exp(-delta * CAM.wheelSpeed)))
-      const wx = s.cam.x + px / z0
-      const wy = s.cam.y + py / z0
-      anim.current.target = { x: wx - px / z1, y: wy - py / z1, zoom: z1 }
+      // While a selection focus is active the constellation is the content:
+      // anchor the zoom to the selected node instead of the cursor, so a
+      // wheel gesture can never fling the ring off-screen.
+      const world = useWorldStore.getState().world
+      const anchor =
+        s.selectedId && focusForSelection(world, s.selectedId)
+          ? world.nodeById.get(s.selectedId)
+          : undefined
+      const ax = anchor ? (anchor.position[0] - s.cam.x) * z0 : px
+      const ay = anchor ? (anchor.position[1] - s.cam.y) * z0 : py
+      const wx = s.cam.x + ax / z0
+      const wy = s.cam.y + ay / z0
+      anim.current.target = { x: wx - ax / z1, y: wy - ay / z1, zoom: z1 }
       anim.current.rate = CAM.wheelRate
       anim.current.active = true
     }

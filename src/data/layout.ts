@@ -2,6 +2,8 @@ import { layoutConfig } from '../config'
 import type { KnowledgeNode } from '../demo/generate'
 import { generateNodes, TIME_MIN, TIME_MAX } from '../demo/generate'
 import { knowledgeAdapter } from '../demo/adapter'
+import type { CavinEdge, WorldEdge } from './edges'
+import { indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
 
 const { layout: LAYOUT } = layoutConfig
 
@@ -59,6 +61,14 @@ export interface World {
   childrenByParent: Map<string, LaidOutNode[]>
   /** Nesting depth: 0 = room-level root, 1 = child, 2 = grandchild, … */
   depthById: Map<string, number>
+  /** Cross-domain connections: confirmed (persisted) + suggested (derived). */
+  edges: WorldEdge[]
+  /** Node id → edges touching it. */
+  edgesByNode: Map<string, WorldEdge[]>
+  /** Node id → number of connections (importance signal: hubs surface first). */
+  degreeById: Map<string, number>
+  /** Max value in degreeById (0 when the world has no edges) — for normalization. */
+  maxDegree: number
 }
 
 const WING_CIRCLE_RADIUS = LAYOUT.topLevelRadius
@@ -201,7 +211,7 @@ export function layoutNodes(raw: KnowledgeNode[]): LaidOutNode[] {
  * - Rooms with no members left disappear; a room whose roots all went
  *   free-placed keeps its previous centroid (or the mean of placed roots).
  */
-export function deriveWorld(rawNodes: LaidOutNode[], prev?: World): World {
+export function deriveWorld(rawNodes: LaidOutNode[], prev?: World, confirmedEdges: CavinEdge[] = []): World {
   const wingIds = sortedWingIds(rawNodes)
 
   // Fresh copies with (re)computed color/hue and normalized groupPath — callers
@@ -316,6 +326,24 @@ export function deriveWorld(rawNodes: LaidOutNode[], prev?: World): World {
     }
   })
 
+  // Cross-domain connections: machine-suggested pairs are recomputed from
+  // layout vectors on every derive (domain = top-level group path); the
+  // persisted confirmed list shadows matching suggestions. Dangling edges
+  // (deleted endpoint) are dropped here — deletion is never blocked.
+  const suggested = suggestEdges(
+    nodes,
+    (n) => n.groupPath?.[0] ?? n.wingId,
+    (n) => knowledgeAdapter.layoutVectorOf?.({ attributes: n }),
+  )
+  const edges = mergeEdges(confirmedEdges, suggested, new Set(nodeById.keys()))
+  const edgesByNode = indexEdgesByNode(edges)
+  const degreeById = new Map<string, number>()
+  let maxDegree = 0
+  for (const [id, list] of edgesByNode) {
+    degreeById.set(id, list.length)
+    if (list.length > maxDegree) maxDegree = list.length
+  }
+
   return {
     nodes,
     rooms,
@@ -325,7 +353,56 @@ export function deriveWorld(rawNodes: LaidOutNode[], prev?: World): World {
     wingById: new Map(wings.map((w) => [w.id, w])),
     childrenByParent,
     depthById,
+    edges,
+    edgesByNode,
+    degreeById,
+    maxDegree,
   }
+}
+
+/**
+ * The selection spotlight set: the selected node, the other ends of its
+ * confirmed edges, plus its tree context (children and the ancestor chain —
+ * a node's place in the palace stays visible while its relations light up).
+ * Returns null when there is no selection or the node has no confirmed
+ * edges; callers fall back to the plain (non-isolating) spotlight then.
+ */
+export interface SelectionFocus {
+  id: string
+  nodeIds: Set<string>
+  edgeIds: Set<string>
+  /** Confirmed neighbors only — the nodes that gather onto the
+      constellation ring. Ancestors stay home. */
+  ringIds: Set<string>
+  /** Direct unplaced children (excluding any that are also confirmed
+      neighbors) — they gather on the inner ring, oldest first. */
+  childIds: string[]
+}
+
+export function focusForSelection(world: World, selectedId: string | null): SelectionFocus | null {
+  if (!selectedId || !world.nodeById.has(selectedId)) return null
+  const edgeIds = new Set<string>()
+  const ringIds = new Set<string>()
+  const nodeIds = new Set<string>([selectedId])
+  for (const e of world.edgesByNode.get(selectedId) ?? []) {
+    if (e.kind !== 'confirmed') continue
+    edgeIds.add(e.id)
+    const other = e.from === selectedId ? e.to : e.from
+    ringIds.add(other)
+    nodeIds.add(other)
+  }
+  if (edgeIds.size === 0) return null
+  const childIds: string[] = []
+  for (const c of world.childrenByParent.get(selectedId) ?? []) {
+    nodeIds.add(c.id)
+    if (!c.placed && !ringIds.has(c.id)) childIds.push(c.id)
+  }
+  let cur = world.nodeById.get(selectedId)
+  while (cur?.parentId) {
+    nodeIds.add(cur.parentId)
+    cur = world.nodeById.get(cur.parentId)
+  }
+  return { id: selectedId, nodeIds, edgeIds, ringIds, childIds }
 }
 
 /**

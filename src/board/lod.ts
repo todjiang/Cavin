@@ -1,9 +1,9 @@
 import type { Camera } from '../store'
-import type { LaidOutNode, World } from '../data/layout'
+import type { LaidOutNode, SelectionFocus, World } from '../data/layout'
 import { smoothstep } from '../data/layout'
 import { layoutConfig } from '../config'
 
-const { lod: LOD, room: ROOM, labels: LABELS } = layoutConfig/**
+const { lod: LOD, room: ROOM, labels: LABELS, focus: FOCUS } = layoutConfig/**
  * Zoom → band opacities. Node dots are the permanent node form: once they
  * fade in near the room band they stay fully visible at every deeper zoom.
  * Room/wing cluster labels still hand off to each other, and node labels
@@ -142,6 +142,47 @@ function slotJitter(id: string, count: number): number {
 /** Eased drawn radius factor as a room opens (starts small, grows to full). */
 export function roomRadiusEase(roomOpen: number): number {
   return ROOM.radiusEaseMin + (1 - ROOM.radiusEaseMin) * roomOpen
+}
+
+/**
+ * Selection constellation: the confirmed neighbors of the focused node are
+ * assigned slots on a ring around it (render-time only — world positions
+ * never change). Neighbors are grouped by wing so related domains sit
+ * adjacent on the ring, hubs first within a wing. The radius is constant in
+ * SCREEN px (world radius = px / zoom), so the constellation stays the same
+ * readable size at any zoom, and grows with the neighbor count so chips
+ * don't overlap. The focused node's unplaced children form a tighter inner
+ * ring (oldest first) — family sits close, relations on the outer ring.
+ * Deterministic: same focus, same rings.
+ */
+export function focusRingTargets(
+  world: World,
+  focus: SelectionFocus,
+  center: [number, number],
+  zoom: number,
+): Map<string, [number, number]> {
+  const ids = [...focus.ringIds].sort((a, b) => {
+    const na = world.nodeById.get(a)!
+    const nb = world.nodeById.get(b)!
+    return (
+      na.wingId.localeCompare(nb.wingId) ||
+      (world.degreeById.get(b) ?? 0) - (world.degreeById.get(a) ?? 0) ||
+      a.localeCompare(b)
+    )
+  })
+  const out = new Map<string, [number, number]>()
+  const layOutRing = (list: string[], minRadiusPx: number) => {
+    const n = list.length
+    if (n === 0) return
+    const r = Math.max(minRadiusPx, (n * FOCUS.ringPerNodePx) / (2 * Math.PI)) / zoom
+    list.forEach((id, i) => {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2
+      out.set(id, [center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r])
+    })
+  }
+  layOutRing(focus.childIds, FOCUS.innerRingPx)
+  layOutRing(ids, FOCUS.ringRadiusPx)
+  return out
 }
 
 /**

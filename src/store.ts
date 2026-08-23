@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { layoutConfig } from './config'
 
-const { camera: CAM, lod: LOD } = layoutConfig
+const { camera: CAM, lod: LOD, labels: LABELS } = layoutConfig
 
 export interface Camera {
   /** World coords at the viewport center. */
@@ -32,11 +32,11 @@ function initialCam(): Camera {
   return { x: 0, y: 0, zoom: 0.1 }
 }
 
-/** Persisted view tuning (LOD thresholds + time slider). */
+/** Persisted view tuning (LOD thresholds + time slider + label font). */
 const VIEW_KEY = 'cavin-view-v1'
 
-function loadViewSettings(): { zRooms: number; zCards: number; timeT: number } {
-  const defaults = { zRooms: LOD.zRooms, zCards: LOD.zCards, timeT: 0 }
+function loadViewSettings(): { zRooms: number; zCards: number; timeT: number; labelFont: number } {
+  const defaults = { zRooms: LOD.zRooms, zCards: LOD.zCards, timeT: 0, labelFont: LABELS.fontSize }
   try {
     const raw = window.localStorage.getItem(VIEW_KEY)
     if (!raw) return defaults
@@ -45,6 +45,7 @@ function loadViewSettings(): { zRooms: number; zCards: number; timeT: number } {
       zRooms: typeof v.zRooms === 'number' ? v.zRooms : defaults.zRooms,
       zCards: typeof v.zCards === 'number' ? v.zCards : defaults.zCards,
       timeT: typeof v.timeT === 'number' ? v.timeT : defaults.timeT,
+      labelFont: typeof v.labelFont === 'number' ? v.labelFont : defaults.labelFont,
     }
   } catch {
     return defaults
@@ -59,6 +60,9 @@ export interface ViewState {
   zCards: number
   /** Time-dimension slider 0..1 (0 = all eras bright, 1 = only the newest). */
   timeT: number
+  /** Base node-label font size (px); child/room chips offset from it by the
+      deltas in layoutConfig.labels. Runtime knob over the config default. */
+  labelFont: number
   selectedId: string | null
   breadcrumb: string
 
@@ -66,6 +70,7 @@ export interface ViewState {
   setZRooms: (v: number) => void
   setZCards: (v: number) => void
   setTimeT: (v: number) => void
+  setLabelFont: (v: number) => void
   select: (id: string | null) => void
   setBreadcrumb: (b: string) => void
 }
@@ -77,6 +82,7 @@ export const useViewStore = create<ViewState>()((set) => ({
   zRooms: viewDefaults.zRooms,
   zCards: viewDefaults.zCards,
   timeT: viewDefaults.timeT,
+  labelFont: viewDefaults.labelFont,
   selectedId: null,
   breadcrumb: '',
 
@@ -84,6 +90,7 @@ export const useViewStore = create<ViewState>()((set) => ({
   setZRooms: (v) => set((s) => ({ zRooms: v, zCards: Math.max(s.zCards, v + 0.1) })),
   setZCards: (v) => set((s) => ({ zCards: Math.max(v, s.zRooms + 0.1) })),
   setTimeT: (v) => set({ timeT: v }),
+  setLabelFont: (v) => set({ labelFont: v }),
   select: (id) => set({ selectedId: id }),
   setBreadcrumb: (b) => set({ breadcrumb: b }),
 }))
@@ -91,12 +98,18 @@ export const useViewStore = create<ViewState>()((set) => ({
 // Persist view tuning (debounced) so LOD sliders survive reloads.
 let viewSaveTimer: number | undefined
 useViewStore.subscribe((s, prev) => {
-  if (s.zRooms === prev.zRooms && s.zCards === prev.zCards && s.timeT === prev.timeT) return
+  if (
+    s.zRooms === prev.zRooms &&
+    s.zCards === prev.zCards &&
+    s.timeT === prev.timeT &&
+    s.labelFont === prev.labelFont
+  )
+    return
   window.clearTimeout(viewSaveTimer)
   viewSaveTimer = window.setTimeout(() => {
-    const { zRooms, zCards, timeT } = useViewStore.getState()
+    const { zRooms, zCards, timeT, labelFont } = useViewStore.getState()
     try {
-      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ zRooms, zCards, timeT }))
+      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ zRooms, zCards, timeT, labelFont }))
     } catch {
       // non-fatal — tuning just won't persist
     }

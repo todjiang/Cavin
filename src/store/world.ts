@@ -9,6 +9,7 @@ import {
   reparentNodes,
 } from '../data/layout'
 import type { TreeMutationError } from '../data/layout'
+import type { CavinEdge, WorldEdge } from '../data/edges'
 import { worldStorage } from '../data/persist'
 import { layoutConfig } from '../config'
 import { knowledgeAdapter } from '../demo/adapter'
@@ -28,6 +29,9 @@ export interface NodePatch {
 
 export interface WorldState {
   world: World
+  /** Human-confirmed cross-domain connections (persisted). The renderable
+      edge list — confirmed + machine-suggested — lives on `world.edges`. */
+  edges: CavinEdge[]
   /** Node currently open in edit mode in the DetailPanel (must equal selectedId). */
   editingId: string | null
   toasts: ToastMsg[]
@@ -61,6 +65,10 @@ export interface WorldState {
   toggleLock: (id: string) => void
   /** Cascade delete: the note + descendants, minus locked branches. No-op (toast) when locked. */
   removeNode: (id: string) => void
+  /** Promote a machine-suggested connection to human-confirmed (persisted). */
+  confirmEdge: (edge: WorldEdge) => void
+  /** Remove a confirmed connection. */
+  unlinkEdge: (id: string) => void
   /** Wipe localStorage and regenerate the seeded palace. */
   resetDemo: () => void
 
@@ -72,16 +80,16 @@ export interface WorldState {
 let toastSeq = 0
 
 /** Boot: restore the persisted world if present, else the seeded palace. */
-function boot(): World {
+function boot(): { world: World; edges: CavinEdge[] } {
   const stored = worldStorage.load()
   if (stored) {
     try {
-      return deriveWorld(stored)
+      return { world: deriveWorld(stored.nodes, undefined, stored.edges), edges: stored.edges }
     } catch {
       // Corrupt shape — fall through to the seeded world.
     }
   }
-  return buildInitialWorld()
+  return { world: buildInitialWorld(), edges: [] }
 }
 
 function nearestRoom(world: World, at: [number, number]) {
@@ -106,7 +114,15 @@ function newId(): string {
 export const useWorldStore = create<WorldState>()((set, get) => {
   /** Full mutation: map nodes, re-derive the world, persist (via subscription). */
   const mutate = (fn: (nodes: LaidOutNode[]) => LaidOutNode[]) =>
-    set((s) => ({ world: deriveWorld(fn(s.world.nodes), s.world) }))
+    set((s) => ({ world: deriveWorld(fn(s.world.nodes), s.world, s.edges) }))
+
+  /** Edge mutation: replace the confirmed list and re-derive the world so
+      world.edges (confirmed + suggested) stays in sync. */
+  const mutateEdges = (fn: (edges: CavinEdge[]) => CavinEdge[]) =>
+    set((s) => {
+      const edges = fn(s.edges)
+      return { edges, world: deriveWorld(s.world.nodes, s.world, edges) }
+    })
 
   // Frame-coalesced drag: pointermove can exceed 60Hz, but a drag's position
   // update only needs to land once per frame. We buffer the latest target and
@@ -153,8 +169,11 @@ export const useWorldStore = create<WorldState>()((set, get) => {
     else if (err === 'cycle') get().toast('Can’t nest a note inside its own descendant')
   }
 
+  const initial = boot()
+
   return {
-    world: boot(),
+    world: initial.world,
+    edges: initial.edges,
     editingId: null,
     toasts: [],
     requestedSelection: null,
@@ -311,6 +330,11 @@ export const useWorldStore = create<WorldState>()((set, get) => {
       const node = get().world.nodeById.get(id)
       if (!node || !lockedGuard(node)) return
       const doomed = deletableSubtree(get().world, id)
+      // Connections are weak references: prune confirmed edges touching the
+      // deleted subtree (suggested ones are re-derived anyway).
+      if (get().edges.some((e) => doomed.has(e.from) || doomed.has(e.to))) {
+        mutateEdges((edges) => edges.filter((e) => !doomed.has(e.from) && !doomed.has(e.to)))
+      }
       mutate((nodes) => nodes.filter((n) => !doomed.has(n.id)))
       // Selection cleanup happens in the App bridge: the deleted ids are no
       // longer in the world, so a stale selectedId is cleared there.
@@ -318,9 +342,27 @@ export const useWorldStore = create<WorldState>()((set, get) => {
       get().toast(doomed.size > 1 ? `Deleted ${doomed.size} notes` : 'Note deleted')
     },
 
+    confirmEdge: (edge) => {
+      const { from, to } = edge
+      if (!get().world.nodeById.has(from) || !get().world.nodeById.has(to)) return
+      // Confirming preserves the suggested edge's pair identity, so the
+      // confirmed edge shadows the suggestion in world.edges.
+      mutateEdges((edges) =>
+        edges.some((e) => e.id === edge.id)
+          ? edges
+          : [...edges, { id: edge.id, from, to, createdAt: Date.now() }],
+      )
+      get().toast('Connection confirmed')
+    },
+
+    unlinkEdge: (id) => {
+      mutateEdges((edges) => edges.filter((e) => e.id !== id))
+      get().toast('Connection removed')
+    },
+
     resetDemo: () => {
       worldStorage.clear()
-      set({ world: buildInitialWorld(), editingId: null })
+      set({ world: buildInitialWorld(), edges: [], editingId: null })
       get().toast('Demo data restored')
     },
 
@@ -331,15 +373,17 @@ export const useWorldStore = create<WorldState>()((set, get) => {
   }
 })
 
-// Persist the node array (debounced) whenever the world changes. A failed
-// save surfaces as a one-shot toast so the user knows persistence stopped.
+// Persist the node array + confirmed edges (debounced) whenever they change.
+// A failed save surfaces as a one-shot toast so the user knows persistence
+// stopped.
 let saveTimer: number | undefined
 let lastSaveWarned = false
 useWorldStore.subscribe((s, prev) => {
-  if (s.world === prev.world) return
+  if (s.world === prev.world && s.edges === prev.edges) return
   window.clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => {
-    const ok = worldStorage.save(useWorldStore.getState().world.nodes)
+    const state = useWorldStore.getState()
+    const ok = worldStorage.save(state.world.nodes, state.edges)
     if (!ok && !lastSaveWarned) {
       lastSaveWarned = true
       useWorldStore.getState().toast('Storage full — changes won’t persist')

@@ -63,6 +63,13 @@ export interface LayoutConfig {
     maxChips: number
     chipHeight: number
     chipMaxWidth: number
+    /** Node chip font sizes (px): base label, child labels (hang below the
+        dot), room nameplates. User feedback: 10–11px was unreadable, so the
+        defaults sit one step up. Applied inline by NodeLabelLayer; the CSS
+        values are just pre-first-frame fallbacks. */
+    fontSize: number
+    childFontSize: number
+    roomFontSize: number
     /** Width estimate: chipBaseWidth + chars × chipCharWidth (+ chipKidsWidth
         when the node has children). */
     chipBaseWidth: number
@@ -90,6 +97,58 @@ export interface LayoutConfig {
     hueOffset: number
     colorSaturation: number
     colorLightness: number
+  }
+  edges: {
+    /** Cosine-similarity floor for a machine-suggested cross-domain edge. */
+    simThreshold: number
+    /** Per-node cap on suggested edges (top-K by similarity). */
+    maxPerNode: number
+    /** Aggregated arc line width = arcWidthBase + arcWidthPerEdge × ln(count). */
+    arcWidthBase: number
+    arcWidthPerEdge: number
+    /** Perpendicular bend of arcs/curves, as a fraction of endpoint distance. */
+    arcBend: number
+    /** Selection spotlight: alpha/width for edges touching the selected node. */
+    spotlightAlpha: number
+    spotlightWidth: number
+    /** Alpha multiplier for unrelated edges (and bundles) while spotlighting. */
+    dimFactor: number
+    /** Alpha multiplier for unrelated node dots while spotlighting. */
+    dotDimFactor: number
+    /** Far-LOD bundle alpha when it carries a selected node's edge. */
+    bundleSpotAlpha: number
+    /** Relation label on a spotlighted arc: font size (screen px), max
+        chars before truncation, and min screen length of an arc that gets
+        a label at all. */
+    labelFontSize: number
+    labelMaxLen: number
+    labelMinDist: number
+    /** Focus mode (selection with confirmed edges): halo ring around the
+        related dots — extra radius (screen px) and stroke alpha. */
+    focusRingPad: number
+    focusRingAlpha: number
+    /** Opacity of wing/room cluster labels while focus mode is active. */
+    focusLabelAlpha: number
+  }
+  focus: {
+    /** Selection constellation: confirmed neighbors gather onto a ring
+        around the selected node. Ring radius in screen px — constant across
+        zooms, so the constellation stays readable zoomed out — with a
+        per-neighbor minimum arc so crowded rings grow instead of
+        overlapping. */
+    ringRadiusPx: number
+    ringPerNodePx: number
+    /** Inner ring for the selected node's children (family sits close to
+        the center, relations on the outer ring). Same growth rule. */
+    innerRingPx: number
+    /** Per-frame ease rate of the gather animation (0..1). */
+    blendRate: number
+  }
+  importance: {
+    /** Hub emphasis: dot radius scales up to × (1 + sizeBoost) and alpha up
+        by alphaBoost at max normalized degree (degree / maxDegree). */
+    sizeBoost: number
+    alphaBoost: number
   }
   interaction: {
     /** Pointer travel (screen px) before a press becomes a drag. */
@@ -140,10 +199,13 @@ export const layoutConfig: LayoutConfig = {
   },
   labels: {
     maxChips: 200,
-    chipHeight: 20,
+    chipHeight: 22,
     chipMaxWidth: 180,
+    fontSize: 12,
+    childFontSize: 11,
+    roomFontSize: 13,
     chipBaseWidth: 16,
-    chipCharWidth: 5.8,
+    chipCharWidth: 6.6,
     chipKidsWidth: 24,
     nameplateOpen: 0.45,
     declutterCell: 48,
@@ -160,6 +222,37 @@ export const layoutConfig: LayoutConfig = {
     hueOffset: 15,
     colorSaturation: 70,
     colorLightness: 62,
+  },
+  edges: {
+    // Tuned against the seeded palace: cross-wing per-node best sims sit
+    // around 0.8 (median), so 0.9 yields ~230 suggestions over ~1087 notes
+    // — visible without turning into spaghetti.
+    simThreshold: 0.9,
+    maxPerNode: 2,
+    arcWidthBase: 0.8,
+    arcWidthPerEdge: 1.2,
+    arcBend: 0.18,
+    spotlightAlpha: 0.95,
+    spotlightWidth: 2.5,
+    dimFactor: 0.15,
+    dotDimFactor: 0.55,
+    bundleSpotAlpha: 0.85,
+    labelFontSize: 12,
+    labelMaxLen: 14,
+    labelMinDist: 60,
+    focusRingPad: 2.6,
+    focusRingAlpha: 0.95,
+    focusLabelAlpha: 0.22,
+  },
+  focus: {
+    ringRadiusPx: 260,
+    ringPerNodePx: 64,
+    innerRingPx: 92,
+    blendRate: 0.16,
+  },
+  importance: {
+    sizeBoost: 1.1,
+    alphaBoost: 0.5,
   },
   interaction: {
     dragThreshold: 4,

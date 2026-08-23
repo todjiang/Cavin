@@ -25,6 +25,8 @@ export function DetailPanel() {
   const addChild = useWorldStore((s) => s.addChild)
   const reparentNode = useWorldStore((s) => s.reparentNode)
   const promoteNode = useWorldStore((s) => s.promoteNode)
+  const confirmEdge = useWorldStore((s) => s.confirmEdge)
+  const unlinkEdge = useWorldStore((s) => s.unlinkEdge)
 
   const node = selectedId ? world.nodeById.get(selectedId) : undefined
   const editing = !!node && editingId === node.id
@@ -70,6 +72,15 @@ export function DetailPanel() {
   const children = world.childrenByParent.get(node.id) ?? []
   const doomedCount = confirming ? deletableSubtree(world, node.id).size : 0
   const parentNode = node.parentId ? world.nodeById.get(node.parentId) : undefined
+
+  // Cross-domain connections touching this note: confirmed first, then the
+  // machine suggestions the curator can confirm (or ignore).
+  const connections = (world.edgesByNode.get(node.id) ?? []).map((e) => ({
+    edge: e,
+    other: world.nodeById.get(e.from === node.id ? e.to : e.from)!,
+  }))
+  const confirmedConnections = connections.filter((c) => c.edge.kind === 'confirmed')
+  const suggestedConnections = connections.filter((c) => c.edge.kind === 'suggested')
 
   // Re-parent picker candidates: anything except the node itself, its
   // descendants (cycle), locked targets, and the current parent.
@@ -308,6 +319,55 @@ export function DetailPanel() {
                   </button>
                 )
               })}
+            </div>
+          )}
+
+          {connections.length > 0 && (
+            <div className="detail-children">
+              <div className="detail-children-title">connections · {connections.length}</div>
+              {confirmedConnections.map(({ edge, other }) => (
+                <div key={edge.id} className="detail-child-row">
+                  <button className="detail-ancestor-link" onClick={() => select(other.id)}>
+                    {other.title}
+                  </button>
+                  {edge.label && (
+                    <span className="parent-option-crumb">{edge.label}</span>
+                  )}
+                  <span className="parent-option-crumb">
+                    {other.wingName} / {other.roomName}
+                  </span>
+                  <button
+                    className="detail-btn detail-parent-change"
+                    title="Remove this confirmed connection"
+                    onClick={() => unlinkEdge(edge.id)}
+                  >
+                    Unlink
+                  </button>
+                </div>
+              ))}
+              {suggestedConnections.map(({ edge, other }) => (
+                <div key={edge.id} className="detail-child-row">
+                  <button
+                    className="detail-ancestor-link"
+                    title="Machine suggestion — confirm to keep it"
+                    onClick={() => select(other.id)}
+                  >
+                    ⤳ {other.title}
+                  </button>
+                  <span className="parent-option-crumb">
+                    {other.wingName} / {other.roomName}
+                  </span>
+                  {!node.locked && (
+                    <button
+                      className="detail-btn detail-parent-change"
+                      title="Confirm this suggested connection"
+                      onClick={() => confirmEdge(edge)}
+                    >
+                      Confirm
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 

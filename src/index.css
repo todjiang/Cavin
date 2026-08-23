@@ -238,6 +238,12 @@ canvas {
   top: 70px;
   right: 16px;
   width: 300px;
+  /* Long connection lists must not run off-screen: cap at the viewport
+     (minus the time slider strip) and scroll inside the panel. */
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a465e transparent;
   padding: 16px 18px;
   background: rgba(8, 12, 24, 0.92);
   border: 1px solid #26314a;
@@ -548,6 +554,8 @@ canvas {
   pointer-events: none;
 }
 
+/* Font sizes here are pre-first-frame fallbacks — NodeLabelLayer applies
+   layoutConfig.labels.fontSize/childFontSize/roomFontSize inline. */
 .chip {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -555,7 +563,7 @@ canvas {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   background: rgba(8, 12, 24, 0.82);
   border: 1px solid #3a465e;
@@ -576,7 +584,7 @@ canvas {
    smaller/dimmer so the hierarchy reads at a glance. */
 .chip.child {
   transform: translate(-50%, 0);
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 7px;
   color: #a5b1c7;
   background: rgba(8, 12, 24, 0.72);
@@ -585,7 +593,7 @@ canvas {
 /* Room nameplate: a parent whose room has opened — the label rides the
    room boundary, bolder and brighter, the node's new role. */
 .chip.room {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 3px 12px;
@@ -608,6 +616,14 @@ canvas {
   background: rgba(16, 24, 44, 0.95);
   color: #eef2fa;
   box-shadow: 0 0 14px rgba(120, 180, 255, 0.4);
+}
+
+/* Focus mode: a confirmed-connection neighbor of the selected node — its
+   name survives the cut, so it reads as part of the spotlight set. */
+.chip.focus-label {
+  background: rgba(14, 20, 38, 0.92);
+  color: #e6ecf7;
+  box-shadow: 0 0 10px rgba(120, 180, 255, 0.22);
 }
 
 .chip.dragging {
