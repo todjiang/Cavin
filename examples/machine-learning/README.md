@@ -17,4 +17,4 @@ Why generated rather than checked-in JSON:
 - **Size**: the parameter space (wings/rooms/drawers, nesting odds, deep
   chains) is tunable in one place instead of diffing a megabyte of JSON.
 
-Consumed by the app through the dataset registry in `src/demo/datasets.ts`.
+Consumed by `examples/knowledge-palace` (`src/data.ts` converts the flat records to `CavinNode`s and runs the core's initial layout).

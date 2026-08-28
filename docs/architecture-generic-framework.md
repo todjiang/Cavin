@@ -1,6 +1,6 @@
 # Cavin as a Generic Framework for Progressive Data Editing
 
-**Status:** Design proposal — for review
+**Status:** Landed — the §7 roadmap (P1–P5) is implemented; the §3 target layout below is the actual repository layout (npm workspaces rather than pnpm). This document remains the design reference.
 **Date:** 2026-08-15
 **Supersedes relationship:** Builds on the shipped prototype specified in `docs/prd-spatial-refinement.md`. That PRD remains the product spec for the knowledge-palace demo; this document specifies how the prototype's machinery becomes a reusable, data-pluggable framework.
 

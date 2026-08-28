@@ -1,0 +1,17 @@
+{
+  "name": "sanguo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@cavin/core": "*",
+    "@cavin/react": "*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

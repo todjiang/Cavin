@@ -3,12 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
+    "dev": "npm run dev --workspace knowledge-palace",
+    "dev:sanguo": "npm run dev --workspace sanguo",
+    "dev:tasks": "npm run dev --workspace flat-tasks",
     "test": "vitest run",
-    "dev:sanguo": "vite --open /examples/sanguo/seed.html"
+    "typecheck": "tsc -b packages/core packages/react && tsc -p examples/knowledge-palace && tsc -p examples/sanguo && tsc -p examples/flat-tasks",
+    "build": "npm run build --workspace @cavin/core && npm run build --workspace @cavin/react && npm run build --workspace knowledge-palace"
   },
   "dependencies": {
     "react": "^19.2.8",
