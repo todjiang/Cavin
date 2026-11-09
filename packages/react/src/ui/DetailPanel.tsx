@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CavinNode, FieldDescriptor } from '@cavin/core'
-import { bodyOf, deletableSubtree, fieldValueOf, labelOf, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
+import { bodyOf, fieldValueOf, labelOf, subtree, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
 import { useCavin } from '../context'
 import { buildPalette } from '../presentation'
 import { formatTimeValue, timeDomainOf } from './time'
@@ -88,7 +88,7 @@ export function DetailPanel() {
   }
 
   const children = world.childrenByParent.get(node.id) ?? []
-  const doomedCount = confirming ? deletableSubtree(world, node.id).size : 0
+  const doomedCount = confirming ? subtree(world, node.id).size : 0
   const parentNode = node.parentId ? world.nodeById.get(node.parentId) : undefined
 
   // Cross-domain connections touching this node: confirmed first, then the
@@ -101,20 +101,10 @@ export function DetailPanel() {
   const suggestedConnections = connections.filter((c) => c.edge.kind === 'suggested')
 
   // Re-parent picker candidates: anything except the node itself, its
-  // descendants (cycle), locked targets, and the current parent.
-  const excluded = new Set<string>([node.id])
-  if (picking) {
-    const stack = [node.id]
-    while (stack.length) {
-      const cur = stack.pop()!
-      for (const c of world.childrenByParent.get(cur) ?? []) {
-        if (!excluded.has(c.id)) {
-          excluded.add(c.id)
-          stack.push(c.id)
-        }
-      }
-    }
-  }
+  // descendants (cycle), locked targets, and the current parent. Locks are
+  // deliberately IGNORED in this walk — a locked descendant would refuse the
+  // re-parent anyway (cycle guard), so hiding it would only mislead.
+  const excluded = picking ? subtree(world, node.id, { stopAtLocked: false }) : new Set([node.id])
   const pq = parentQuery.trim().toLowerCase()
   const parentCandidates = picking
     ? world.nodes

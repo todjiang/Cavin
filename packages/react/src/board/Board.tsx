@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { Camera } from '@cavin/core'
-import { focusForSelection, layoutConfig, revealZoom, visibleNodes } from '@cavin/core'
+import { focusForSelection, layoutConfig, nearestGroup, revealZoom, visibleNodes } from '@cavin/core'
 import type { RoomMorph } from '@cavin/core'
 import { useCavin } from '../context'
 import { MAX_ZOOM, MIN_ZOOM } from '../view-store'
@@ -80,21 +80,9 @@ export function Board() {
         if (now - lastCrumbAt > 200) {
           lastCrumbAt = now
           const { cam } = useView.getState()
-          const { groups } = useWorld.getState().world
           // Breadcrumb = the nearest group's full path, taken at the deepest
-          // grouping level present.
-          let maxDepth = -1
-          for (const g of groups) if (g.depth > maxDepth) maxDepth = g.depth
-          let best: (typeof groups)[number] | null = null
-          let bestD = Infinity
-          for (const g of groups) {
-            if (g.depth !== maxDepth) continue
-            const d = Math.hypot(g.centroid[0] - cam.x, g.centroid[1] - cam.y)
-            if (d < bestD) {
-              bestD = d
-              best = g
-            }
-          }
+          // grouping level present (tree.nearestGroup).
+          const best = nearestGroup(useWorld.getState().world, [cam.x, cam.y])
           const crumb = best ? best.path.join(' / ') : ''
           if (crumb !== lastBreadcrumb) {
             lastBreadcrumb = crumb

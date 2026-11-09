@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { leafGroups } from '@cavin/core'
 import { useCavin } from '../context'
 import { DimensionSlider } from './DimensionSlider'
 
@@ -35,10 +36,8 @@ export function Hud() {
     resetDemo()
   }
 
-  let maxDepth = -1
-  for (const g of world.groups) if (g.depth > maxDepth) maxDepth = g.depth
   const topCount = world.groups.filter((g) => g.depth === 0).length
-  const leafCount = world.groups.filter((g) => g.depth === maxDepth).length
+  const leafCount = leafGroups(world).length
   const nounPlural = `${adapter.noun}${world.nodes.length === 1 ? '' : 's'}`
 
   return (

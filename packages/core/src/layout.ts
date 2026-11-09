@@ -10,6 +10,7 @@ import type {
 } from './types'
 import type { CavinEdge } from './edges'
 import { indexEdgesByNode, mergeEdges } from './edges'
+import { subtreeFrom } from './tree'
 import { defaultHue, hsl, hueFromColor } from './colors'
 
 /** Separator for group-path keys — cannot appear in a path segment. */
@@ -424,41 +425,11 @@ export function focusForSelection<TAttr>(
   return { id: selectedId, nodeIds, edgeIds, ringIds, childIds }
 }
 
-/**
- * The set a delete would actually remove: the node plus its descendants,
- * except that a locked node shields itself and its whole branch. The node
- * itself is assumed unlocked (the command layer guards that before calling).
- */
-export function deletableSubtree<TAttr>(world: World<TAttr>, rootId: string): Set<string> {
-  const out = new Set<string>()
-  const walk = (id: string, isRoot: boolean) => {
-    const node = world.nodeById.get(id)
-    if (!node) return
-    if (!isRoot && node.state.locked) return // locked branch shields itself
-    out.add(id)
-    for (const child of world.childrenByParent.get(id) ?? []) walk(child.id, false)
-  }
-  walk(rootId, true)
-  return out
-}
-
-/** Ids of a node's movable subtree: itself + descendants, minus locked branches. */
-export function movableSubtree<TAttr>(world: World<TAttr>, rootId: string): Set<string> {
-  const out = new Set<string>()
-  const walk = (id: string, isRoot: boolean) => {
-    const node = world.nodeById.get(id)
-    if (!node) return
-    if (!isRoot && node.state.locked) return
-    out.add(id)
-    for (const child of world.childrenByParent.get(id) ?? []) walk(child.id, false)
-  }
-  walk(rootId, true)
-  return out
-}
-
 /* ------------------------------------------------------------------ */
-/* Pure tree mutations — the refinement operations. Each returns a    */
-/* new node array; the command layer feeds it through deriveWorld.     */
+/* Pure tree mutations — the refinement operations. Each takes and      */
+/* returns a node array; the command layer feeds the result through     */
+/* deriveWorld. They intentionally do NOT take a World: they run        */
+/* pre-derive, where the tree indexes do not exist yet.                 */
 /* ------------------------------------------------------------------ */
 
 function childrenIndex<TAttr>(nodes: CavinNode<TAttr>[]): Map<string, CavinNode<TAttr>[]> {
@@ -515,15 +486,13 @@ export function reparentNodes<TAttr>(
   }
 
   const kids = childrenIndex(nodes)
-  const subtree = new Set<string>()
-  const walk = (cur: string, isRoot: boolean) => {
-    const n = byId.get(cur)
-    if (!n) return
-    if (!isRoot && n.state.locked) return
-    subtree.add(cur)
-    for (const c of kids.get(cur) ?? []) walk(c.id, false)
-  }
-  walk(id, true)
+  // The movable subtree crosses into the new parent's group — same
+  // traversal as delete/move (tree.subtreeFrom over this pre-derive index).
+  const subtree = subtreeFrom(
+    (nid) => byId.get(nid),
+    (nid) => kids.get(nid) ?? [],
+    id,
+  )
 
   const angle = rand() * Math.PI * 2
   const radius =

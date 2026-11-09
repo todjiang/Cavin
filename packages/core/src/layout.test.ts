@@ -5,13 +5,12 @@ import type { World } from './types'
 import { family, makeNode, testAdapter } from './test-helpers'
 import type { TestAttrs } from './test-helpers'
 import {
-  deletableSubtree,
   deriveWorld,
   focusForSelection,
-  movableSubtree,
   promoteToRootNodes,
   reparentNodes,
 } from './layout'
+import { subtree } from './tree'
 
 /**
  * Framework contract tests: the refinement rules a curator relies on —
@@ -164,22 +163,34 @@ describe('focusForSelection', () => {
   })
 })
 
-describe('deletableSubtree / movableSubtree', () => {
+describe('subtree (the single delete/move traversal)', () => {
+  // Delete and move used to carry two character-identical walkers
+  // (deletableSubtree/movableSubtree); they are now one query.
+  it.each([
+    ['with lock shielding', true],
+    ['ignoring locks (picker exclusion)', false],
+  ])('collects the subtree %s', (_label, stopAtLocked) => {
+    const world: World<TestAttrs> = deriveWorld(family(), testAdapter)
+    expect([...subtree(world, 'a', { stopAtLocked })].sort()).toEqual(['a', 'b', 'c'])
+    // Unrelated roots are never included.
+    expect(subtree(world, 'a', { stopAtLocked }).has('d')).toBe(false)
+  })
+
   it('a locked node shields itself and its whole branch', () => {
     const nodes = family().map((n) =>
       n.id === 'b' ? { ...n, state: { ...n.state, locked: true } } : n,
     )
     const world: World<TestAttrs> = deriveWorld(nodes, testAdapter)
-    // Deleting a removes a only — b is locked and shields c.
-    expect([...deletableSubtree(world, 'a')].sort()).toEqual(['a'])
-    expect([...movableSubtree(world, 'a')].sort()).toEqual(['a'])
+    // Deleting/moving a removes a only — b is locked and shields c.
+    expect([...subtree(world, 'a')].sort()).toEqual(['a'])
   })
 
-  it('includes the full subtree when nothing is locked', () => {
-    const world = deriveWorld(family(), testAdapter)
-    expect([...deletableSubtree(world, 'a')].sort()).toEqual(['a', 'b', 'c'])
-    // Unrelated roots are never included.
-    expect(deletableSubtree(world, 'a').has('d')).toBe(false)
+  it('ignores locks only when the caller asks for it', () => {
+    const nodes = family().map((n) =>
+      n.id === 'b' ? { ...n, state: { ...n.state, locked: true } } : n,
+    )
+    const world: World<TestAttrs> = deriveWorld(nodes, testAdapter)
+    expect([...subtree(world, 'a', { stopAtLocked: false })].sort()).toEqual(['a', 'b', 'c'])
   })
 })
 

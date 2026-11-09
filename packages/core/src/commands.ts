@@ -1,15 +1,10 @@
 import { layoutConfig } from './config'
 import type { LayoutConfig } from './config'
 import type { SchemaAdapter } from './adapter'
-import type { CavinNode, GroupCluster, TreeMutationError, World } from './types'
+import type { CavinNode, TreeMutationError, World } from './types'
 import type { CavinEdge } from './edges'
-import {
-  deletableSubtree,
-  deriveWorld,
-  movableSubtree,
-  promoteToRootNodes,
-  reparentNodes,
-} from './layout'
+import { deriveWorld, promoteToRootNodes, reparentNodes } from './layout'
+import { nearestGroup, subtree } from './tree'
 
 /**
  * The command layer: every structural edit is one serializable command
@@ -79,28 +74,6 @@ export function newId(): string {
   return `n-${Date.now().toString(36)}-${idSeq.toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`
 }
 
-/** Nearest cluster at the deepest grouping level present — where a new root
-    lands. `null` when the world has no groups (ungrouped data). */
-function nearestLeafGroup<TAttr>(
-  world: World<TAttr>,
-  at: [number, number],
-): GroupCluster | null {
-  let maxDepth = -1
-  for (const g of world.groups) if (g.depth > maxDepth) maxDepth = g.depth
-  if (maxDepth < 0) return null
-  let best: GroupCluster | null = null
-  let bestD = Infinity
-  for (const g of world.groups) {
-    if (g.depth !== maxDepth) continue
-    const d = Math.hypot(g.centroid[0] - at[0], g.centroid[1] - at[1])
-    if (d < bestD) {
-      bestD = d
-      best = g
-    }
-  }
-  return best
-}
-
 function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefined {
   return world.nodeById.get(id)
 }
@@ -136,7 +109,7 @@ export function applyCommand<TAttr>(
 
   switch (cmd.type) {
     case 'add': {
-      const group = nearestLeafGroup(world, cmd.at)
+      const group = nearestGroup(world, cmd.at)
       const groupPath = group ? [...group.path] : []
       const id = newId()
       const created: CavinNode<TAttr> = {
@@ -205,7 +178,7 @@ export function applyCommand<TAttr>(
       const delta: [number, number] = [cmd.to[0] - n.position[0], cmd.to[1] - n.position[1]]
       if (delta[0] === 0 && delta[1] === 0) return { ok: true }
       const firstDetach = !n.state.placed
-      const movable = movableSubtree(world, cmd.id)
+      const movable = subtree(world, cmd.id)
       return {
         ok: true,
         world: derive(
@@ -284,7 +257,7 @@ export function applyCommand<TAttr>(
       const n = node(world, cmd.id)
       if (!n) return { ok: false, error: 'missing' }
       if (n.state.locked) return { ok: false, error: 'locked-node' }
-      const doomed = deletableSubtree(world, cmd.id)
+      const doomed = subtree(world, cmd.id)
       // Connections are weak references: prune confirmed edges touching the
       // deleted subtree (suggested ones belong to the caller's list).
       const edges = confirmed.filter((e) => !doomed.has(e.from) && !doomed.has(e.to))

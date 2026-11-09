@@ -15,11 +15,11 @@ import type {
 import {
   applyCommand,
   createMemoryCavinStorage,
-  deletableSubtree,
   deriveWorld,
   labelOf,
   layoutConfig,
   mergeConfig,
+  subtree,
 } from '@cavin/core'
 import { createSuggestionCache } from './suggestions'
 
@@ -308,7 +308,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
       },
 
       removeNode: (id) => {
-        const doomed = deletableSubtree(get().world, id)
+        const doomed = subtree(get().world, id)
         dispatch({ type: 'remove', id })
         // Selection cleanup happens in the canvas bridge: the deleted ids are
         // no longer in the world, so a stale selectedId is cleared there.

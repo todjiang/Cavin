@@ -11,6 +11,7 @@ import {
   roomRadius,
   roomRadiusEase,
   smoothstep,
+  subtree,
   tagsOf,
   timeOf,
   visibleNodes,
@@ -532,19 +533,8 @@ export function NodeLabelLayer() {
         drag.dragging = true
         drag.moved = true
         // Snapshot the subtree once: descendants can never be drop targets.
-        const world = useWorld.getState().world
-        const desc = new Set<string>()
-        const stack = [drag.nodeId]
-        while (stack.length) {
-          const cur = stack.pop()!
-          for (const c of world.childrenByParent.get(cur) ?? []) {
-            if (!desc.has(c.id)) {
-              desc.add(c.id)
-              stack.push(c.id)
-            }
-          }
-        }
-        drag.descendants = desc
+        // Same traversal the move command uses — locked branches stay.
+        drag.descendants = subtree(useWorld.getState().world, drag.nodeId)
       }
       const zoom = useView.getState().cam.zoom
       drag.pos = [drag.pos[0] + (e.clientX - drag.lastX) / zoom, drag.pos[1] + (e.clientY - drag.lastY) / zoom]
