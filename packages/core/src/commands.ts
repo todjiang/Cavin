@@ -67,11 +67,14 @@ export interface MutationResult<TAttr = unknown> {
   createdId?: string
 }
 
-let idSeq = 0
-/** Framework-generated node ids. Hosts may bring their own on import. */
-export function newId(): string {
-  idSeq = (idSeq + 1) % Number.MAX_SAFE_INTEGER
-  return `n-${Date.now().toString(36)}-${idSeq.toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`
+/** Framework-generated node ids. Hosts may bring their own on import.
+    `rand` is injectable so a full command replay (the same rand the caller
+    hands applyCommand) can make id generation deterministic — no
+    module-global counter, the last singleton. */
+export function newId(rand: () => number = Math.random): string {
+  const a = Math.floor(rand() * 1e9).toString(36)
+  const b = Math.floor(rand() * 1e9).toString(36)
+  return `n-${Date.now().toString(36)}-${a}-${b}`
 }
 
 function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefined {
@@ -111,7 +114,7 @@ export function applyCommand<TAttr>(
     case 'add': {
       const group = nearestGroup(world, cmd.at)
       const groupPath = group ? [...group.path] : []
-      const id = newId()
+      const id = newId(rand)
       const created: CavinNode<TAttr> = {
         id,
         position: [...cmd.at] as [number, number],
@@ -135,7 +138,7 @@ export function applyCommand<TAttr>(
       const radius =
         config.layout.childSpawnRadiusMin + rand() * config.layout.childSpawnRadiusSpread
       const relOffset: [number, number] = [Math.cos(angle) * radius, Math.sin(angle) * radius]
-      const id = newId()
+      const id = newId(rand)
       const created: CavinNode<TAttr> = {
         id,
         parentId: parent.id,

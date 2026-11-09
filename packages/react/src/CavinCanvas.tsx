@@ -13,7 +13,7 @@ import type { CavinContextValue } from './context'
 import { createViewStore } from './view-store'
 import { createWorldStore } from './world-store'
 import { createFrameHolder } from './frame'
-import type { WorldStore } from './world-store'
+import { syncSelection } from './selection'
 import { Board } from './board/Board'
 import { Minimap } from './board/Minimap'
 import { Hud } from './ui/Hud'
@@ -63,21 +63,30 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       urlSync: props.urlSync,
       config,
     })
+    return { adapter: props.adapter, title: props.title, config, view }
+  })
+
+  const [stores] = useState(() => {
+    // The world store needs a selection seam into the view store (create
+    // actions select the new node). The stores never import each other:
+    // the canvas injects the callback — a real call between two modules —
+    // and syncSelection enforces the cross-store invariants.
     const world = createWorldStore<TAttr>({
       adapter: props.adapter,
       config: props.config,
       storage: props.storage,
       initialNodes: props.initialNodes,
       initialEdges: props.initialEdges,
+      onSelectRequest: (id) => value.view.getState().select(id),
     })
-    const frame = createFrameHolder(config)
-    return { adapter: props.adapter, title: props.title, config, view, world, frame }
+    const frame = createFrameHolder(value.config)
+    return { world, frame }
   })
 
-  useSelectionBridge(value.view, value.world)
+  useEffect(() => syncSelection(value.view, stores.world), [value.view, stores.world])
 
   return (
-    <CavinContext.Provider value={value as unknown as CavinContextValue}>
+    <CavinContext.Provider value={{ ...value, ...stores } as unknown as CavinContextValue}>
       <ErrorBoundary>
         <div className={`app${props.className ? ` ${props.className}` : ''}`}>
           <Board />
@@ -90,24 +99,4 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       </ErrorBoundary>
     </CavinContext.Provider>
   )
-}
-
-/** Bridge between the world and view stores, wired per canvas so the stores
-    never import each other:
-    - world actions that need a selection change (add note/child) set
-      `requestedSelection`; we apply it to the view store.
-    - whenever the world changes, a selectedId that no longer exists
-      (deleted, or wiped by the reset) is cleared. */
-function useSelectionBridge<TAttr>(view: CavinContextValue['view'], world: WorldStore<TAttr>): void {
-  useEffect(() => {
-    return world.subscribe((s, prev) => {
-      if (s.requestedSelection && s.requestedSelection !== prev.requestedSelection) {
-        view.getState().select(s.requestedSelection.id)
-      }
-      if (s.world !== prev.world) {
-        const sel = view.getState().selectedId
-        if (sel && !s.world.nodeById.has(sel)) view.getState().select(null)
-      }
-    })
-  }, [view, world])
 }
