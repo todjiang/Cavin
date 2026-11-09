@@ -5,25 +5,33 @@ import { layoutConfig } from './config'
 const { lod: LOD, room: ROOM, labels: LABELS, focus: FOCUS } = layoutConfig/**
  * Zoom → band opacities. Node dots are the permanent node form: once they
  * fade in near the room band they stay fully visible at every deeper zoom.
- * Room/wing cluster labels still hand off to each other, and node labels
- * (chipOpacity) fade in once and never leave.
+ * Cluster labels hand off from the top-level band to the sub-level bands as
+ * you zoom in; node labels (chipOpacity) fade in once and never leave.
  */
 export interface LodLevels {
-  /** Room name labels (yield to node labels at close zoom). */
-  rooms: number
-  /** Wing name labels (dominate zoomed out). */
-  wings: number
   /** Blurred cluster blobs on the dots canvas. */
   blobs: number
   /** Node dots — permanent once revealed. */
   dots: number
 }
 
+/**
+ * Cluster-label band opacity, one ramp per grouping depth. Depth 0 (the top
+ * level) dominates zoomed out and yields to the sub bands as rooms open;
+ * depths ≥ 1 share the sub-band ramp, which yields to full cards at close
+ * zoom. A depth-generic host therefore gets one live band per level present
+ * in the data instead of exactly two.
+ */
+export function clusterLevels(depth: number, zoom: number, zRooms: number, zCards: number): number {
+  if (depth <= 0) return 1 - smoothstep(zRooms * 0.9, zRooms * 1.4, zoom)
+  return (
+    smoothstep(zRooms * 0.8, zRooms, zoom) *
+    (1 - smoothstep(zCards * 0.85, zCards * 1.1, zoom))
+  )
+}
+
 export function lodLevels(zoom: number, zRooms: number, zCards: number): LodLevels {
   return {
-    rooms:
-      smoothstep(zRooms * 0.8, zRooms, zoom) * (1 - smoothstep(zCards * 0.85, zCards * 1.1, zoom)),
-    wings: 1 - smoothstep(zRooms * 0.9, zRooms * 1.4, zoom),
     blobs: 1 - smoothstep(zRooms * 1.2, zCards * 1.1, zoom),
     dots: smoothstep(zRooms * 0.6, zRooms * 1.1, zoom),
   }

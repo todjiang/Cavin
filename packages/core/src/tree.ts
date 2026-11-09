@@ -65,6 +65,17 @@ export function leafGroups<TAttr>(world: World<TAttr>): GroupCluster[] {
   return depth < 0 ? [] : world.groups.filter((g) => g.depth === depth)
 }
 
+/** Clusters bucketed by depth: index d holds every cluster at level d, so
+    renderers can iterate bands without naming depths. Empty when the world
+    has no groups (a flat host gets no phantom bands). */
+export function groupsByDepth<TAttr>(world: World<TAttr>): GroupCluster[][] {
+  const out: GroupCluster[][] = []
+  for (const g of world.groups) {
+    ;(out[g.depth] ??= []).push(g)
+  }
+  return out
+}
+
 /** Nearest cluster at the deepest grouping level — where a new root lands,
     what the breadcrumb shows. Null when the world has no groups. */
 export function nearestGroup<TAttr>(

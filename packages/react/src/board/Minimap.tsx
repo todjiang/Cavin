@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { hsla } from '@cavin/core'
+import { groupsByDepth, hsla } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
 
@@ -103,8 +103,9 @@ export function Minimap() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, MAP_W, MAP_H)
 
-      for (const top of world.groups) {
-        if (top.depth !== 0) continue
+      const bands = groupsByDepth(world)
+      // bands[0] IS depth 0 — the top-level geography discs.
+      for (const top of bands[0] ?? []) {
         ctx.fillStyle = hsla(palette.clusterHue(top), 0.12)
         ctx.beginPath()
         ctx.arc(toMapX(top.centroid[0]), toMapY(top.centroid[1]), top.radius * scale, 0, Math.PI * 2)
@@ -118,7 +119,7 @@ export function Minimap() {
       ctx.globalAlpha = 1
 
       // Region labels so the map is orientable at a glance: top-level names
-      // always; sub-cluster names only where their circle is big enough.
+      // always; deeper-band names only where their circle is big enough.
       // Greedy collision rejection keeps them from stacking.
       const labelRects: { x0: number; y0: number; x1: number; y1: number }[] = []
       const tryLabel = (x: number, y: number, text: string, color: string, font: string) => {
@@ -134,8 +135,7 @@ export function Minimap() {
         ctx.fillStyle = color
         ctx.fillText(text, x, y)
       }
-      for (const top of world.groups) {
-        if (top.depth !== 0) continue
+      for (const top of bands[0] ?? []) {
         tryLabel(
           toMapX(top.centroid[0]),
           toMapY(top.centroid[1]),
@@ -144,8 +144,7 @@ export function Minimap() {
           '600 7px system-ui, sans-serif',
         )
       }
-      for (const sub of world.groups) {
-        if (sub.depth !== 1) continue
+      for (const sub of bands.slice(1).flat()) {
         if (sub.radius * scale < 9) continue
         tryLabel(
           toMapX(sub.centroid[0]),

@@ -82,6 +82,12 @@ export interface LayoutConfig {
     /** Uniform-grid cell (screen px) for label collision decluttering. */
     declutterCell: number
   }
+  /** Blurred cluster-blob radii on the dots canvas: the top-level band vs
+      every deeper (sub) band. */
+  blobs: {
+    topRadiusFactor: number
+    subRadiusFactor: number
+  }
   layout: {
     /** Initial scatter: top-level groups evenly on a circle of this radius. */
     topLevelRadius: number
@@ -217,6 +223,10 @@ export const layoutConfig: LayoutConfig = {
     chipKidsWidth: 24,
     nameplateOpen: 0.45,
     declutterCell: 48,
+  },
+  blobs: {
+    topRadiusFactor: 1.15,
+    subRadiusFactor: 1.6,
   },
   layout: {
     topLevelRadius: 1500,

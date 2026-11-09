@@ -12,7 +12,7 @@ export { layoutConfig, mergeConfig } from './config'
 export { hsla } from './colors'
 export type { CavinEdge, WorldEdge } from './edges'
 export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges, validateEdgeRecords } from './edges'
-export { subtree, subtreeFrom, deepestDepth, leafGroups, nearestGroup } from './tree'
+export { subtree, subtreeFrom, deepestDepth, leafGroups, nearestGroup, groupsByDepth } from './tree'
 export type { SubtreeOptions } from './tree'
 export {
   groupPathKey,
@@ -25,6 +25,7 @@ export {
 } from './layout'
 export {
   lodLevels,
+  clusterLevels,
   chipOpacity,
   revealZoom,
   roomRadius,

@@ -3,10 +3,10 @@ import type { GroupCluster } from '@cavin/core'
 import { hsla, layoutConfig, smoothstep } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
-import { focusForSelection, focusRingTargets, lodLevels, roomMorph, roomRadiusEase, visibleNodes } from '@cavin/core'
+import { focusForSelection, focusRingTargets, groupsByDepth, lodLevels, roomMorph, roomRadiusEase, visibleNodes } from '@cavin/core'
 import type { RoomMorph, VisibleEntry } from '@cavin/core'
 
-const { edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = layoutConfig
+const { blobs: BLOBS, edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = layoutConfig
 
 /**
  * Canvas layer: node dots (colored by top-level group via the adapter, sized
@@ -123,34 +123,31 @@ export function DotsCanvas() {
       const dotsLv = focus ? Math.max(lv.dots, focusK) : lv.dots
       const edgeLabelsOn = cam.zoom >= zRooms * 0.8
 
-      // Blurred blobs: soft top-level glow + sub-group blobs, rising as you
-      // zoom out. Groups sliced by depth (0 = top level, 1 = first sub-level).
+      // Blurred blobs: soft glow per cluster band, rising as you zoom out.
+      // Bands come from the world — one pass per grouping depth present.
       if (lv.blobs > 0.01) {
-        for (const top of world.groups) {
-          if (top.depth !== 0) continue
-          const x = sx(top.centroid[0])
-          const y = sy(top.centroid[1])
-          const r = top.radius * 1.15 * cam.zoom
-          if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-          g.addColorStop(0, hsla(palette.clusterHue(top), 0.1 * lv.blobs))
-          g.addColorStop(1, hsla(palette.clusterHue(top), 0))
-          ctx.fillStyle = g
-          ctx.fillRect(x - r, y - r, r * 2, r * 2)
+        const drawBand = (groups: GroupCluster[], isTop: boolean) => {
+          for (const cluster of groups) {
+            const x = sx(cluster.centroid[0])
+            const y = sy(cluster.centroid[1])
+            const r = cluster.radius * (isTop ? BLOBS.topRadiusFactor : BLOBS.subRadiusFactor) * cam.zoom
+            if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+            if (isTop) {
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0))
+            } else {
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.28 * lv.blobs))
+              g.addColorStop(0.7, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0))
+            }
+            ctx.fillStyle = g
+            ctx.fillRect(x - r, y - r, r * 2, r * 2)
+          }
         }
-        for (const sub of world.groups) {
-          if (sub.depth !== 1) continue
-          const x = sx(sub.centroid[0])
-          const y = sy(sub.centroid[1])
-          const r = sub.radius * 1.6 * cam.zoom
-          if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-          g.addColorStop(0, hsla(palette.clusterHue(sub), 0.28 * lv.blobs))
-          g.addColorStop(0.7, hsla(palette.clusterHue(sub), 0.1 * lv.blobs))
-          g.addColorStop(1, hsla(palette.clusterHue(sub), 0))
-          ctx.fillStyle = g
-          ctx.fillRect(x - r, y - r, r * 2, r * 2)
-        }
+        const bands = groupsByDepth(world)
+        if (bands.length > 0) drawBand(bands[0], true) // bands[0] IS depth 0
+        for (const sub of bands.slice(1)) drawBand(sub, false)
       }
 
       // Cross-domain arcs, zoomed out: edges aggregate into top-level
