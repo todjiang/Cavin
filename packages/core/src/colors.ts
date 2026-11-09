@@ -64,33 +64,3 @@ function rgbHue(r: number, g: number, b: number): number {
   h *= 60
   return (h + 360) % 360
 }
-
-/** Color with an alpha channel, for canvas gradients and fades. Understands
-    hsl/hsla/hex/rgb; any other CSS color is returned unchanged (renderers
-    that need alpha then fall back to `globalAlpha`). */
-export function withAlpha(color: string, alpha: number): string {
-  const m = HSL_RE.exec(color)
-  if (m) {
-    // Re-inject alpha into the original string so saturation/lightness
-    // expressions pass through untouched.
-    const rest = color.slice(m[0].length)
-    return `hsla(${m[1]}, ${rest.replace(/\)$/, '').trim()}, ${alpha})`
-  }
-  const hex = HEX_RE.exec(color.trim())
-  if (hex && (hex[1].length === 6 || hex[1].length === 3)) {
-    const full =
-      hex[1].length === 3
-        ? hex[1]
-            .split('')
-            .map((c) => c + c)
-            .join('')
-        : hex[1]
-    const r = parseInt(full.slice(0, 2), 16)
-    const g = parseInt(full.slice(2, 4), 16)
-    const b = parseInt(full.slice(4, 6), 16)
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
-  }
-  const rgb = RGB_RE.exec(color)
-  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`
-  return color
-}

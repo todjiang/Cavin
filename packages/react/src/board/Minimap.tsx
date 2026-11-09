@@ -8,15 +8,17 @@ const MAP_W = 180
 const MAP_H = 120
 const PAD = 8
 
-// World bounds from node extents — recomputed every frame since nodes can
-// now be dragged anywhere, created, and deleted.
-let minX = 0
-let minY = 0
-let scale = 1
-let ox = 0
-let oy = 0
+/** World→map transform, recomputed per frame inside each instance — never
+    module state, so two canvases on one page cannot fight over the bounds. */
+interface MapBounds {
+  minX: number
+  minY: number
+  scale: number
+  ox: number
+  oy: number
+}
 
-function updateBounds(positions: readonly [number, number][]) {
+function computeBounds(positions: readonly [number, number][]): MapBounds {
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
@@ -35,17 +37,15 @@ function updateBounds(positions: readonly [number, number][]) {
   y0 -= 120
   x1 += 120
   y1 += 120
-  minX = x0
-  minY = y0
-  scale = Math.min((MAP_W - PAD * 2) / (x1 - x0), (MAP_H - PAD * 2) / (y1 - y0))
-  ox = PAD + ((MAP_W - PAD * 2) - (x1 - x0) * scale) / 2
-  oy = PAD + ((MAP_H - PAD * 2) - (y1 - y0) * scale) / 2
+  const scale = Math.min((MAP_W - PAD * 2) / (x1 - x0), (MAP_H - PAD * 2) / (y1 - y0))
+  return {
+    minX: x0,
+    minY: y0,
+    scale,
+    ox: PAD + ((MAP_W - PAD * 2) - (x1 - x0) * scale) / 2,
+    oy: PAD + ((MAP_H - PAD * 2) - (y1 - y0) * scale) / 2,
+  }
 }
-
-const toMapX = (wx: number) => ox + (wx - minX) * scale
-const toMapY = (wy: number) => oy + (wy - minY) * scale
-const toWorldX = (mx: number) => minX + (mx - ox) / scale
-const toWorldY = (my: number) => minY + (my - oy) / scale
 
 /**
  * Corner minimap: top-level tint regions + tiny node dots + region name
@@ -57,6 +57,25 @@ export function Minimap() {
   const { adapter, view: useView, world: useWorld } = useCavin()
   const ref = useRef<HTMLCanvasElement>(null)
   const dragging = useRef(false)
+  // Per-instance world→map transform: written by the draw loop each frame,
+  // read by jump() — shared through a ref, never through module state.
+  const boundsRef = useRef<MapBounds>({ minX: 0, minY: 0, scale: 1, ox: 0, oy: 0 })
+  const toMapX = (wx: number) => {
+    const b = boundsRef.current
+    return b.ox + (wx - b.minX) * b.scale
+  }
+  const toMapY = (wy: number) => {
+    const b = boundsRef.current
+    return b.oy + (wy - b.minY) * b.scale
+  }
+  const toWorldX = (mx: number) => {
+    const b = boundsRef.current
+    return b.minX + (mx - b.ox) / b.scale
+  }
+  const toWorldY = (my: number) => {
+    const b = boundsRef.current
+    return b.minY + (my - b.oy) / b.scale
+  }
 
   useEffect(() => {
     const canvas = ref.current!
@@ -79,7 +98,8 @@ export function Minimap() {
       lastWorld = world
       lastTimeT = timeT
       const palette = paletteOf(world)
-      updateBounds(world.nodes.map((n) => n.position))
+      boundsRef.current = computeBounds(world.nodes.map((n) => n.position))
+      const { scale } = boundsRef.current
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, MAP_W, MAP_H)
 

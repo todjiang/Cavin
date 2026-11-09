@@ -604,5 +604,3 @@ export function timeFactor(t: number, range: [number, number], timeT: number): n
   const ramp = 0.12 * (max - min)
   return smoothstep(cutoff, cutoff + ramp, t)
 }
-
-export const DAY_MS = 24 * 60 * 60 * 1000

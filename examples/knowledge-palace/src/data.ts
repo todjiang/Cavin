@@ -1,7 +1,7 @@
 import { layoutNodes } from '@cavin/core'
 import type { CavinNode } from '@cavin/core'
-import { generateNodes } from '../../machine-learning/generate'
-import type { KnowledgeNode } from '../../machine-learning/generate'
+import { generateNodes } from './generate'
+import type { KnowledgeNode } from './generate'
 import { knowledgeAdapter } from './adapter'
 import type { KnowledgeAttrs } from './adapter'
 

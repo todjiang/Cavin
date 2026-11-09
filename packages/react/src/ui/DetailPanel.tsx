@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CavinNode } from '@cavin/core'
-import { bodyOf, deletableSubtree, labelOf, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
+import type { CavinNode, FieldDescriptor } from '@cavin/core'
+import { bodyOf, deletableSubtree, fieldValueOf, labelOf, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
 import { useCavin } from '../context'
 import { buildPalette } from '../presentation'
 import { formatTimeValue, timeDomainOf } from './time'
@@ -53,7 +53,7 @@ export function DetailPanel() {
 
   /** A field's current value as edit-draft text (tags are comma-joined). */
   const fieldDraft = (f: { key: string; kind: string }, n: CavinNode): string => {
-    const v = (n.attributes as Record<string, unknown>)[f.key]
+    const v = fieldValueOf(n, f as FieldDescriptor)
     if (f.kind === 'tags') return Array.isArray(v) ? (v as string[]).join(', ') : ''
     return typeof v === 'string' ? v : ''
   }

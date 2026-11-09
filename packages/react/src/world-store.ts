@@ -109,8 +109,6 @@ export interface WorldState<TAttr = unknown> {
   dismissToast: (id: number) => void
 }
 
-let toastSeq = 0
-
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 /** Notice-kind → user-facing copy, interpolated with the adapter's noun. */
@@ -168,6 +166,9 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
   const storage = options.storage ?? createMemoryCavinStorage<TAttr>()
   const edgesStore = options.edgesStore ?? null
   const noun = adapter.noun
+  // Per-instance toast id counter (was module state — two stores on one page
+  // shared it).
+  let toastSeq = 0
 
   /** Boot: restore the persisted world if present, else the initial draft. */
   function boot(): { world: World<TAttr>; edges: CavinEdge[] } {

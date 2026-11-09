@@ -18,19 +18,31 @@ export function searchTextOf<TAttr>(
   return adapter.searchTextOf?.(node) ?? labelOf(adapter, node)
 }
 
+/** Raw value of one declared field on a node (undefined when unset). This is
+    the single sanctioned way to read `attributes` outside the adapter — UI
+    code should go through this or a semantic accessor, never index
+    `attributes` by key directly. */
+export function fieldValueOf<TAttr>(
+  node: CavinNode<TAttr>,
+  field: FieldDescriptor<TAttr>,
+): unknown {
+  return (node.attributes as Record<string, unknown>)[field.key]
+}
+
 /** Values of every `tags`-kind field, concatenated. */
 export function tagsOf<TAttr>(adapter: SchemaAdapter<TAttr>, node: CavinNode<TAttr>): string[] {
-  const rec = node.attributes as Record<string, unknown>
   return adapter.fields
     .filter((f) => f.kind === 'tags')
-    .flatMap((f) => (Array.isArray(rec[f.key]) ? (rec[f.key] as string[]) : []))
+    .flatMap((f) => {
+      const v = fieldValueOf(node, f)
+      return Array.isArray(v) ? (v as string[]) : []
+    })
 }
 
 /** Value of the first `multiline`-kind field (the long-form content). */
 export function bodyOf<TAttr>(adapter: SchemaAdapter<TAttr>, node: CavinNode<TAttr>): string {
-  const rec = node.attributes as Record<string, unknown>
   const f = adapter.fields.find((d) => d.kind === 'multiline')
-  const v = f ? rec[f.key] : undefined
+  const v = f ? fieldValueOf(node, f) : undefined
   return typeof v === 'string' ? v : ''
 }
 
@@ -44,8 +56,7 @@ export function timeFieldOf<TAttr>(
 /** The node's position on the time axis (undefined when the host has none). */
 export function timeOf<TAttr>(adapter: SchemaAdapter<TAttr>, node: CavinNode<TAttr>): number | undefined {
   const f = timeFieldOf(adapter)
-  if (!f) return undefined
-  const v = (node.attributes as Record<string, unknown>)[f.key]
+  const v = f ? fieldValueOf(node, f) : undefined
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
 

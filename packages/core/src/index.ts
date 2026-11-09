@@ -9,7 +9,7 @@ export * from './types'
 export type { FieldDescriptor, SchemaAdapter } from './adapter'
 export type { LayoutConfig, DeepPartial } from './config'
 export { layoutConfig, mergeConfig } from './config'
-export { defaultHue, hsl, hsla, hueFromColor, withAlpha } from './colors'
+export { hsla } from './colors'
 export type { CavinEdge, WorldEdge } from './edges'
 export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
 export {
@@ -19,21 +19,14 @@ export {
   nodeColorIndex,
   focusForSelection,
   deletableSubtree,
-  movableSubtree,
-  reparentNodes,
-  promoteToRootNodes,
   smoothstep,
   timeFactor,
-  DAY_MS,
 } from './layout'
 export {
   lodLevels,
   chipOpacity,
   revealZoom,
-  zoomGate,
-  focusFalloff,
   roomRadius,
-  roomSlot,
   roomRadiusEase,
   focusRingTargets,
   roomMorph,
@@ -41,7 +34,7 @@ export {
 } from './lod'
 export type { LodLevels, RoomMorph, VisibleEntry } from './lod'
 export type { Command, MutationNotice, MutationResult } from './commands'
-export { applyCommand, applyDragFrame, newId } from './commands'
+export { applyCommand, applyDragFrame } from './commands'
 export type { CavinStorage } from './storage'
 export { createMemoryCavinStorage, validateRecords } from './storage'
 export {
@@ -49,6 +42,7 @@ export {
   searchTextOf,
   tagsOf,
   bodyOf,
+  fieldValueOf,
   timeFieldOf,
   timeOf,
   timeRangeOf,
