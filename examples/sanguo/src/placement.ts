@@ -15,10 +15,12 @@
  * Pure and randomness-free: same input → same positions.
  */
 import type { Camp, Role, SanguoNode } from './types'
+import { layoutConfig } from '@cavin/core'
 import { CAMPS, ROLES } from './types'
 
-/** Top-level camps sit on a circle of this radius (matches framework default). */
-export const WING_CIRCLE_RADIUS = 1500
+/** Top-level camps sit on a circle of this radius — read from the framework
+    config so the preview stays in sync if the default ever moves. */
+export const WING_CIRCLE_RADIUS = layoutConfig.layout.topLevelRadius
 /** Non-君主 role rooms orbit the camp center at this radius. */
 export const ROLE_RING_RADIUS = 360
 /** Grid pitch inside a room. */

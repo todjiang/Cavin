@@ -1,22 +1,20 @@
 import { create } from 'zustand'
 import type { StoreApi, UseBoundStore } from 'zustand'
-import type { Camera } from '@cavin/core'
+import type { Camera, LayoutConfig } from '@cavin/core'
 import { layoutConfig } from '@cavin/core'
 
 /**
  * The view store factory — camera, LOD thresholds, selection, URL sync.
  * One store per mounted canvas; `urlSync` and persisted tuning are opt-in
- * so embedded canvases don't fight over the page URL.
+ * so embedded canvases don't fight over the page URL. The resolved
+ * LayoutConfig seeds the zoom bounds and the HUD slider defaults, so a
+ * host's `config` prop changes what this store starts from.
  */
 
-const { camera: CAM, lod: LOD, labels: LABELS } = layoutConfig
-
-export const MIN_ZOOM = CAM.minZoom
-// Deep enough to pass THROUGH the deepest rooms: revealZoom saturates at
-// depth 6 (≈3.4 at default zCards), and full pass-through needs ×2.6 more.
-export const MAX_ZOOM = CAM.maxZoom
-
 export interface ViewStoreOptions {
+  /** The resolved config for this canvas (defaults deep-merged with the
+      host's overrides). Seeds minZoom/maxZoom and the LOD/font defaults. */
+  config?: LayoutConfig
   /** localStorage key for persisted view tuning (LOD sliders, font). Omit →
       tuning is session-only. */
   storageKey?: string
@@ -27,6 +25,9 @@ export interface ViewStoreOptions {
 
 export interface ViewState {
   cam: Camera
+  /** Zoom bounds for this canvas (from the resolved config). */
+  minZoom: number
+  maxZoom: number
   /** Zoom at which room labels appear. */
   zRooms: number
   /** Zoom at which full cards appear. */
@@ -34,7 +35,7 @@ export interface ViewState {
   /** Time-dimension slider 0..1 (0 = all eras bright, 1 = only the newest). */
   timeT: number
   /** Base node-label font size (px); child/room chips offset from it by the
-      deltas in layoutConfig.labels. Runtime knob over the config default. */
+      deltas in the resolved config. Runtime knob over the config default. */
   labelFont: number
   selectedId: string | null
   breadcrumb: string
@@ -57,53 +58,58 @@ interface Tuning {
   labelFont: number
 }
 
-const defaultTuning = (): Tuning => ({
-  zRooms: LOD.zRooms,
-  zCards: LOD.zCards,
-  timeT: 0,
-  labelFont: LABELS.fontSize,
-})
-
-function loadTuning(key: string | undefined): Tuning {
-  if (!key || typeof window === 'undefined') return defaultTuning()
-  try {
-    const raw = window.localStorage.getItem(key)
-    if (!raw) return defaultTuning()
-    const v = JSON.parse(raw)
-    const d = defaultTuning()
-    return {
-      zRooms: typeof v.zRooms === 'number' ? v.zRooms : d.zRooms,
-      zCards: typeof v.zCards === 'number' ? v.zCards : d.zCards,
-      timeT: typeof v.timeT === 'number' ? v.timeT : d.timeT,
-      labelFont: typeof v.labelFont === 'number' ? v.labelFont : d.labelFont,
-    }
-  } catch {
-    return defaultTuning()
-  }
-}
-
-/** Dev/preview affordance: ?x=&y=&zoom= jumps straight to a viewpoint. */
-function initialCam(): Camera {
-  if (typeof window === 'undefined') return { x: 0, y: 0, zoom: 0.1 }
-  const p = new URLSearchParams(window.location.search)
-  const zoom = Number(p.get('zoom'))
-  if (p.has('zoom') && Number.isFinite(zoom) && zoom > 0) {
-    const x = Number(p.get('x'))
-    const y = Number(p.get('y'))
-    return {
-      x: Number.isFinite(x) ? x : 0,
-      y: Number.isFinite(y) ? y : 0,
-      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)),
-    }
-  }
-  return { x: 0, y: 0, zoom: 0.1 }
-}
-
 export function createViewStore(options: ViewStoreOptions = {}): ViewStore {
+  const config = options.config ?? layoutConfig
+  const defaultTuning = (): Tuning => ({
+    zRooms: config.lod.zRooms,
+    zCards: config.lod.zCards,
+    timeT: 0,
+    labelFont: config.labels.fontSize,
+  })
+
+  function loadTuning(key: string | undefined): Tuning {
+    if (!key || typeof window === 'undefined') return defaultTuning()
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) return defaultTuning()
+      const v = JSON.parse(raw)
+      const d = defaultTuning()
+      return {
+        zRooms: typeof v.zRooms === 'number' ? v.zRooms : d.zRooms,
+        zCards: typeof v.zCards === 'number' ? v.zCards : d.zCards,
+        timeT: typeof v.timeT === 'number' ? v.timeT : d.timeT,
+        labelFont: typeof v.labelFont === 'number' ? v.labelFont : d.labelFont,
+      }
+    } catch {
+      return defaultTuning()
+    }
+  }
+
+  /** Dev/preview affordance: ?x=&y=&zoom= jumps straight to a viewpoint. */
+  function initialCam(): Camera {
+    if (typeof window === 'undefined') return { x: 0, y: 0, zoom: 0.1 }
+    const p = new URLSearchParams(window.location.search)
+    const zoom = Number(p.get('zoom'))
+    if (p.has('zoom') && Number.isFinite(zoom) && zoom > 0) {
+      const x = Number(p.get('x'))
+      const y = Number(p.get('y'))
+      return {
+        x: Number.isFinite(x) ? x : 0,
+        y: Number.isFinite(y) ? y : 0,
+        // Deep enough to pass THROUGH the deepest rooms: revealZoom
+        // saturates at depth 6, and full pass-through needs × passFull more.
+        zoom: Math.min(config.camera.maxZoom, Math.max(config.camera.minZoom, zoom)),
+      }
+    }
+    return { x: 0, y: 0, zoom: 0.1 }
+  }
+
   const tuning = loadTuning(options.storageKey)
 
   const store = create<ViewState>()((set) => ({
     cam: options.urlSync ? initialCam() : { x: 0, y: 0, zoom: 0.1 },
+    minZoom: config.camera.minZoom,
+    maxZoom: config.camera.maxZoom,
     zRooms: tuning.zRooms,
     zCards: tuning.zCards,
     timeT: tuning.timeT,
@@ -175,7 +181,7 @@ export function createViewStore(options: ViewStoreOptions = {}): ViewStore {
       store.getState().setCam({
         x: Number.isFinite(x) ? x : 0,
         y: Number.isFinite(y) ? y : 0,
-        zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)),
+        zoom: Math.min(config.camera.maxZoom, Math.max(config.camera.minZoom, zoom)),
       })
     })
   }

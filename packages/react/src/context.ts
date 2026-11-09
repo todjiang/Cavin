@@ -1,18 +1,22 @@
 import { createContext, useContext } from 'react'
-import type { CavinNode, CavinStorage, SchemaAdapter, WorldSnapshot } from '@cavin/core'
+import type { CavinNode, CavinStorage, LayoutConfig, SchemaAdapter, WorldSnapshot } from '@cavin/core'
 import { validateEdgeRecords, validateRecords } from '@cavin/core'
 import type { ViewStore } from './view-store'
 import type { WorldStore } from './world-store'
 
 /**
  * Per-instance composition: one context per mounted canvas carrying the
- * adapter, the resolved config, and the two stores. Board/UI components
- * never import a singleton — they read their stores from here.
+ * adapter, the RESOLVED config (defaults deep-merged with the host's
+ * `config` prop), and the two stores. Board/UI components never import a
+ * singleton — they read their stores and the config from here, so a
+ * per-instance override reaches every render-time computation.
  */
 export interface CavinContextValue<TAttr = unknown> {
   adapter: SchemaAdapter<TAttr>
   /** Optional HUD heading from the host. */
   title?: string
+  /** The resolved LayoutConfig for this canvas (mergeConfig output). */
+  config: LayoutConfig
   view: ViewStore
   world: WorldStore<TAttr>
 }

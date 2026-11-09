@@ -1,27 +1,37 @@
 import { layoutConfig } from './config'
+import type { LayoutConfig } from './config'
 
 /**
  * Color plumbing. Nodes and clusters do NOT carry colors — color is
  * presentation, derived from the group path via `adapter.colorOf` (or the
  * default hue rotation) at render time. These helpers back the default
  * scheme and let canvas renderers build alpha variants of any host color.
+ *
+ * Every helper takes the resolved LayoutConfig (default: the global
+ * defaults) so a per-instance `CavinCanvas config={…}` override actually
+ * reaches the painted pixels.
  */
 
 /** The default scheme: deterministic hue rotation over the top-level group
     (first-encounter order), the demo's wingHue scheme. */
-export function defaultHue(topIndex: number): number {
-  const { hueStep, hueOffset } = layoutConfig.layout
+export function defaultHue(topIndex: number, config: LayoutConfig = layoutConfig): number {
+  const { hueStep, hueOffset } = config.layout
   return (topIndex * hueStep + hueOffset) % 360
 }
 
-export function hsl(hue: number, saturation?: number, lightness?: number): string {
-  const s = saturation ?? layoutConfig.layout.colorSaturation
-  const l = lightness ?? layoutConfig.layout.colorLightness
+export function hsl(
+  hue: number,
+  config: LayoutConfig = layoutConfig,
+  saturation?: number,
+  lightness?: number,
+): string {
+  const s = saturation ?? config.layout.colorSaturation
+  const l = lightness ?? config.layout.colorLightness
   return `hsl(${hue}, ${s}%, ${l}%)`
 }
 
-export function hsla(hue: number, alpha: number): string {
-  return `hsla(${hue}, ${layoutConfig.layout.colorSaturation}%, ${layoutConfig.layout.colorLightness}%, ${alpha})`
+export function hsla(hue: number, alpha: number, config: LayoutConfig = layoutConfig): string {
+  return `hsla(${hue}, ${config.layout.colorSaturation}%, ${config.layout.colorLightness}%, ${alpha})`
 }
 
 const HSL_RE = /^hsla?\(\s*([\d.]+)(?:deg)?\s*[, ]/

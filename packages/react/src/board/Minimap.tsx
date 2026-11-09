@@ -54,7 +54,7 @@ function computeBounds(positions: readonly [number, number][]): MapBounds {
  * Click/drag jumps the camera there. Redrawn every frame.
  */
 export function Minimap() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config } = useCavin()
   const ref = useRef<HTMLCanvasElement>(null)
   const dragging = useRef(false)
   // Per-instance world→map transform: written by the draw loop each frame,
@@ -80,7 +80,7 @@ export function Minimap() {
   useEffect(() => {
     const canvas = ref.current!
     const ctx = canvas.getContext('2d')!
-    const paletteOf = paletteMemo(adapter)
+    const paletteOf = paletteMemo(adapter, config)
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     canvas.width = MAP_W * dpr
     canvas.height = MAP_H * dpr
@@ -106,7 +106,7 @@ export function Minimap() {
       const bands = groupsByDepth(world)
       // bands[0] IS depth 0 — the top-level geography discs.
       for (const top of bands[0] ?? []) {
-        ctx.fillStyle = hsla(palette.clusterHue(top), 0.12)
+        ctx.fillStyle = hsla(palette.clusterHue(top), 0.12, config)
         ctx.beginPath()
         ctx.arc(toMapX(top.centroid[0]), toMapY(top.centroid[1]), top.radius * scale, 0, Math.PI * 2)
         ctx.fill()
@@ -140,7 +140,7 @@ export function Minimap() {
           toMapX(top.centroid[0]),
           toMapY(top.centroid[1]),
           top.name,
-          hsla(palette.clusterHue(top), 0.95),
+          hsla(palette.clusterHue(top), 0.95, config),
           '600 7px system-ui, sans-serif',
         )
       }
@@ -150,7 +150,7 @@ export function Minimap() {
           toMapX(sub.centroid[0]),
           toMapY(sub.centroid[1]),
           sub.name,
-          hsla(palette.clusterHue(sub), 0.7),
+          hsla(palette.clusterHue(sub), 0.7, config),
           '6px system-ui, sans-serif',
         )
       }

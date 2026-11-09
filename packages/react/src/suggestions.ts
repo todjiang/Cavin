@@ -1,5 +1,5 @@
-import type { CavinEdge, CavinNode, SchemaAdapter } from '@cavin/core'
-import { suggestEdges } from '@cavin/core'
+import type { CavinEdge, CavinNode, LayoutConfig, SchemaAdapter } from '@cavin/core'
+import { layoutConfig, suggestEdges } from '@cavin/core'
 
 /**
  * Call-site owner of the machine-suggestion list.
@@ -13,8 +13,15 @@ import { suggestEdges } from '@cavin/core'
  * This cache fingerprints precisely those inputs (O(n)) and recomputes only
  * when the fingerprint changes. `suggest()` returns the SAME array identity
  * when nothing changed, so callers can identity-compare to skip a re-derive.
+ *
+ * The edge-suggestion policy (similarity floor, per-node cap) comes from
+ * the resolved LayoutConfig, so a host's `config` prop actually shapes the
+ * suggestions this canvas makes.
  */
-export function createSuggestionCache<TAttr>(adapter: SchemaAdapter<TAttr>) {
+export function createSuggestionCache<TAttr>(
+  adapter: SchemaAdapter<TAttr>,
+  edgesConfig: LayoutConfig['edges'] = layoutConfig.edges,
+) {
   let sig = ''
   let cached: CavinEdge[] = []
   return {
@@ -33,6 +40,7 @@ export function createSuggestionCache<TAttr>(adapter: SchemaAdapter<TAttr>) {
           nodes,
           (n) => n.groupPath[0] ?? '',
           (n) => adapter.layoutVectorOf?.(n),
+          edgesConfig,
         )
       }
       return cached

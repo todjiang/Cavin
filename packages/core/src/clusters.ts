@@ -33,11 +33,11 @@ export function colorForGroup(
   config: LayoutConfig,
 ): { color: string; hue: number } {
   const fallbackHue = path.length
-    ? defaultHue(topOrder.get(path[0]) ?? 0)
+    ? defaultHue(topOrder.get(path[0]) ?? 0, config)
     : config.layout.ungroupedHue
   const color = path.length
-    ? (colorOf?.(path) ?? hsl(fallbackHue))
-    : hsl(fallbackHue, config.layout.ungroupedSaturation)
+    ? (colorOf?.(path) ?? hsl(fallbackHue, config))
+    : hsl(fallbackHue, config, config.layout.ungroupedSaturation)
   return { color, hue: hueFromColor(color) ?? fallbackHue }
 }
 
@@ -166,7 +166,7 @@ export function nodeColorIndex<TAttr>(
     if (g.depth === 0) index.set(g.path[0] ?? '', { color: g.color, hue: g.hue })
   }
   index.set('', {
-    color: hsl(config.layout.ungroupedHue, config.layout.ungroupedSaturation),
+    color: hsl(config.layout.ungroupedHue, config, config.layout.ungroupedSaturation),
     hue: config.layout.ungroupedHue,
   })
   return index

@@ -7,6 +7,7 @@ import type {
   LayoutConfig,
   SchemaAdapter,
 } from '@cavin/core'
+import { layoutConfig, mergeConfig } from '@cavin/core'
 import { CavinContext } from './context'
 import type { CavinContextValue } from './context'
 import { createViewStore } from './view-store'
@@ -49,9 +50,17 @@ export interface CavinCanvasProps<TAttr> {
 
 export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
   const [value] = useState(() => {
+    // Resolve once per mount: the merged config is THE config for this
+    // canvas — context, view store, world store and every render layer
+    // read it from here, so a host override reaches the pixels.
+    const config: LayoutConfig = mergeConfig(
+      layoutConfig,
+      props.config ?? ({} as DeepPartial<LayoutConfig>),
+    )
     const view = createViewStore({
       storageKey: props.viewStorageKey,
       urlSync: props.urlSync,
+      config,
     })
     const world = createWorldStore<TAttr>({
       adapter: props.adapter,
@@ -60,7 +69,7 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       initialNodes: props.initialNodes,
       initialEdges: props.initialEdges,
     })
-    return { adapter: props.adapter, title: props.title, view, world }
+    return { adapter: props.adapter, title: props.title, config, view, world }
   })
 
   useSelectionBridge(value.view, value.world)

@@ -169,7 +169,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
   // inputs suggestEdges reads actually change). `appliedSuggested` tracks
   // which cache array the current world was derived with — identity-equal
   // means no suggestion input changed, so no re-derive is needed.
-  const suggestions = createSuggestionCache<TAttr>(adapter)
+  const suggestions = createSuggestionCache<TAttr>(adapter, config.edges)
   let appliedSuggested: CavinEdge[] = []
 
   /** Boot: restore the persisted snapshot if present, else the initial draft. */

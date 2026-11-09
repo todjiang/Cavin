@@ -16,7 +16,7 @@ import { formatTimeValue, timeDomainOf } from './time'
  * bypass the lock.
  */
 export function DetailPanel() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config } = useCavin()
   const selectedId = useView((s) => s.selectedId)
   const select = useView((s) => s.select)
   const world = useWorld((s) => s.world)
@@ -32,7 +32,7 @@ export function DetailPanel() {
   const confirmEdge = useWorld((s) => s.confirmEdge)
   const unlinkEdge = useWorld((s) => s.unlinkEdge)
 
-  const palette = useMemo(() => buildPalette(adapter, world), [adapter, world])
+  const palette = useMemo(() => buildPalette(adapter, world, config), [adapter, world, config])
   const timeDomain = useMemo(() => timeDomainOf(world.nodes, adapter), [adapter, world])
   const timeField = timeFieldOf(adapter)
 

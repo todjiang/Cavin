@@ -14,10 +14,10 @@ const MAX_RESULTS = 8
  * detail panel. `?q=` URL param pre-opens with a query (previewing).
  */
 export function SearchBox() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config } = useCavin()
   const select = useView((s) => s.select)
   const world = useWorld((s) => s.world)
-  const palette = useMemo(() => buildPalette(adapter, world), [adapter, world])
+  const palette = useMemo(() => buildPalette(adapter, world, config), [adapter, world, config])
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).has('q'))

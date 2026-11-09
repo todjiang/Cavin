@@ -1,7 +1,5 @@
-import { clusterLevels, focusForSelection, groupsByDepth, layoutConfig } from '@cavin/core'
+import { clusterLevels, focusForSelection, groupsByDepth } from '@cavin/core'
 import { useCavin } from '../context'
-
-const { edges: EDGES } = layoutConfig
 
 /**
  * DOM cluster name labels, one band per grouping depth present in the data.
@@ -12,7 +10,7 @@ const { edges: EDGES } = layoutConfig
  * background context: the constellation has left their geography behind.
  */
 export function ClusterLabels() {
-  const { view: useView, world: useWorld } = useCavin()
+  const { view: useView, world: useWorld, config } = useCavin()
   // Subscribe to zoom only — positions are world-anchored via the parent
   // `.world` transform, so pan (x/y) changes must not re-render this layer.
   const zoom = useView((s) => s.cam.zoom)
@@ -20,7 +18,7 @@ export function ClusterLabels() {
   const zCards = useView((s) => s.zCards)
   const selectedId = useView((s) => s.selectedId)
   const world = useWorld((s) => s.world)
-  const dim = focusForSelection(world, selectedId) ? EDGES.focusLabelAlpha : 1
+  const dim = focusForSelection(world, selectedId) ? config.edges.focusLabelAlpha : 1
   const inv = 1 / zoom
   // Generic bands sliced from the world: the first band IS the top level,
   // every deeper level plays the sub-cluster band (same ramp).

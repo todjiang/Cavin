@@ -1,5 +1,5 @@
-import type { CavinNode, GroupCluster, SchemaAdapter, World } from '@cavin/core'
-import { nodeColorIndex, timeFactor, timeOf, timeRangeOf } from '@cavin/core'
+import type { CavinNode, GroupCluster, LayoutConfig, SchemaAdapter, World } from '@cavin/core'
+import { layoutConfig, nodeColorIndex, timeFactor, timeOf, timeRangeOf } from '@cavin/core'
 
 /**
  * Presentation cache: colors and time-dimming are derived from the adapter
@@ -18,8 +18,9 @@ export interface Palette<TAttr = unknown> {
 export function buildPalette<TAttr>(
   adapter: SchemaAdapter<TAttr>,
   world: World<TAttr>,
+  config: LayoutConfig = layoutConfig,
 ): Palette<TAttr> {
-  const colorIndex = nodeColorIndex(world)
+  const colorIndex = nodeColorIndex(world, config)
   const range = timeRangeOf(world.nodes, adapter)
   const neutral = colorIndex.get('')!
   return {
@@ -41,13 +42,16 @@ export function buildPalette<TAttr>(
     group first-encounter order, time range) identical, so a dragged frame
     must not rebuild an O(n) palette. Any structural derive produces new
     groups and therefore a rebuild. */
-export function paletteMemo<TAttr>(adapter: SchemaAdapter<TAttr>) {
+export function paletteMemo<TAttr>(
+  adapter: SchemaAdapter<TAttr>,
+  config: LayoutConfig = layoutConfig,
+) {
   let lastGroups: World<TAttr>['groups'] | null = null
   let last: Palette<TAttr> | null = null
   return (world: World<TAttr>): Palette<TAttr> => {
     if (world.groups !== lastGroups || !last) {
       lastGroups = world.groups
-      last = buildPalette(adapter, world)
+      last = buildPalette(adapter, world, config)
     }
     return last
   }

@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react'
 import type { GroupCluster } from '@cavin/core'
-import { hsla, layoutConfig, smoothstep } from '@cavin/core'
+import { hsla, smoothstep } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
 import { focusForSelection, focusRingTargets, groupsByDepth, lodLevels, roomMorph, roomRadiusEase, visibleNodes } from '@cavin/core'
 import type { RoomMorph, VisibleEntry } from '@cavin/core'
 
-const { blobs: BLOBS, edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = layoutConfig
 
 /**
  * Canvas layer: node dots (colored by top-level group via the adapter, sized
@@ -17,13 +16,14 @@ const { blobs: BLOBS, edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = lay
  * room's ring once it opens. Redrawn every frame from the store camera.
  */
 export function DotsCanvas() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config } = useCavin()
   const ref = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = ref.current!
     const ctx = canvas.getContext('2d')!
-    const paletteOf = paletteMemo(adapter)
+    const { blobs: BLOBS, edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = config
+    const paletteOf = paletteMemo(adapter, config)
     let raf = 0
     // Dirty-check: skip the full redraw while nothing the canvas depends on
     // has changed (idle), instead of re-rasterizing every frame.
@@ -75,10 +75,10 @@ export function DotsCanvas() {
       // never recursed into. Computed lazily — blobs don't need morphs.
       const morph = new Map<string, RoomMorph>()
       let visible: VisibleEntry[] | null = null
-      const vis = () => (visible ??= visibleNodes(world, cam, w, h, zCards, 8, morph))
+      const vis = () => (visible ??= visibleNodes(world, cam, w, h, zCards, 8, morph, config))
       const morphOf = (id: string) => {
         const n = world.nodeById.get(id)!
-        return roomMorph(world, n, cam.zoom, cam, zCards, morph)
+        return roomMorph(world, n, cam.zoom, cam, zCards, morph, config)
       }
 
       // Selection spotlight: confirmed edges touching the selected node are
@@ -110,7 +110,7 @@ export function DotsCanvas() {
       else focusBlend = Math.min(1, focusBlend + (1 - focusBlend) * FOCUS.blendRate)
       const focusK = smoothstep(0, 1, focusBlend)
       const ringTargets = focus
-        ? focusRingTargets(world, focus, morphOf(focus.id).pos, cam.zoom)
+        ? focusRingTargets(world, focus, morphOf(focus.id).pos, cam.zoom, config)
         : null
       const dispOf = (id: string): [number, number] => {
         const base = (morph.get(id) ?? morphOf(id)).pos
@@ -134,12 +134,12 @@ export function DotsCanvas() {
             if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
             const g = ctx.createRadialGradient(x, y, 0, x, y, r)
             if (isTop) {
-              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs))
-              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0))
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs, config))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0, config))
             } else {
-              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.28 * lv.blobs))
-              g.addColorStop(0.7, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs))
-              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0))
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.28 * lv.blobs, config))
+              g.addColorStop(0.7, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs, config))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0, config))
             }
             ctx.fillStyle = g
             ctx.fillRect(x - r, y - r, r * 2, r * 2)
@@ -202,8 +202,8 @@ export function DotsCanvas() {
           const cy = my + ((x2 - x1) / dist) * dist * EDGES.arcBend * side
           const alpha = (spot ? EDGES.bundleSpotAlpha : 0.4 * (spotlight ? EDGES.dimFactor : 1)) * lv.blobs
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.clusterHue(a), alpha))
-          grad.addColorStop(1, hsla(palette.clusterHue(b), alpha))
+          grad.addColorStop(0, hsla(palette.clusterHue(a), alpha, config))
+          grad.addColorStop(1, hsla(palette.clusterHue(b), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = EDGES.arcWidthBase + EDGES.arcWidthPerEdge * Math.log(count)
           ctx.beginPath()
@@ -226,14 +226,14 @@ export function DotsCanvas() {
           const dp = focus ? dispOf(n.id) : m.pos
           const x = sx(dp[0])
           const y = sy(dp[1])
-          const r = m.roomR * cam.zoom * roomRadiusEase(m.roomOpen)
+          const r = m.roomR * cam.zoom * roomRadiusEase(m.roomOpen, config)
           if (x < -r || x > w + r || y < -r || y > h + r) continue
           ctx.beginPath()
           ctx.arc(x, y, r, 0, Math.PI * 2)
-          ctx.fillStyle = hsla(palette.nodeHue(n), 0.06 * wall)
+          ctx.fillStyle = hsla(palette.nodeHue(n), 0.06 * wall, config)
           ctx.fill()
           ctx.lineWidth = 1.5
-          ctx.strokeStyle = hsla(palette.nodeHue(n), 0.5 * wall)
+          ctx.strokeStyle = hsla(palette.nodeHue(n), 0.5 * wall, config)
           ctx.stroke()
         }
       }
@@ -261,7 +261,7 @@ export function DotsCanvas() {
           const x2 = sx(cdp[0])
           const y2 = sy(cdp[1])
           if ((x1 < -40 && x2 < -40) || (x1 > w + 40 && x2 > w + 40) || (y1 < -40 && y2 < -40) || (y1 > h + 40 && y2 > h + 40)) continue
-          ctx.strokeStyle = hsla(palette.nodeHue(n), alpha)
+          ctx.strokeStyle = hsla(palette.nodeHue(n), alpha, config)
           ctx.beginPath()
           ctx.moveTo(x1, y1)
           ctx.lineTo(x2, y2)
@@ -304,8 +304,8 @@ export function DotsCanvas() {
           }
           const alpha = 0.55 * (spotlight ? EDGES.dimFactor : 1) * dotsLv
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha))
-          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha))
+          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha, config))
+          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = 1.5
           ctx.beginPath()
@@ -319,8 +319,8 @@ export function DotsCanvas() {
           const nb = world.nodeById.get(e.to)!
           const alpha = EDGES.spotlightAlpha * dotsLv * (focus ? focusK : 1)
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha))
-          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha))
+          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha, config))
+          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = EDGES.spotlightWidth
           ctx.beginPath()

@@ -36,6 +36,12 @@ Boot rule: storage wins if it holds nodes, else `initialNodes`, else an empty
 world. One instance = one adapter + its own stores and DOM world, so two
 canvases coexist on one page (pass different storage keys).
 
+`config` is real, not decorative: the merged result rides the per-instance
+context and seeds the view store (zoom bounds, HUD slider defaults) and every
+render-time computation (LOD ramps, room morph, cluster colours, edge
+suggestion policy), so `config={{ lod: { zCards: 0.6 }, camera: { maxZoom: 20 } }}`
+genuinely changes what the canvas paints.
+
 ## What's inside
 
 - **`CavinCanvas`** — the composition root. Creates the per-instance view and

@@ -6,7 +6,6 @@ import {
   focusRingTargets,
   focusForSelection,
   labelOf,
-  layoutConfig,
   roomMorph,
   roomRadius,
   roomRadiusEase,
@@ -16,31 +15,21 @@ import {
   timeOf,
   visibleNodes,
 } from '@cavin/core'
+import type { LayoutConfig } from '@cavin/core'
 import type { RoomMorph } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
 
-const { labels: LABELS, interaction: INTERACT, focus: FOCUS } = layoutConfig
-
-/** Click vs drag: pointer must travel this many screen px to become a drag. */
-const DRAG_THRESHOLD = INTERACT.dragThreshold
-/** Drop-target snap radius (screen px): within this of another node's dot,
-    releasing the drag re-parents instead of free-placing. */
-const DROP_RADIUS = INTERACT.dropRadius
-const CHIP_H = LABELS.chipHeight
-const CHIP_MAX_W = LABELS.chipMaxWidth
-/** A parent's label becomes the room's nameplate once its room is this open. */
-const NAMEPLATE_OPEN = LABELS.nameplateOpen
-/** Child/room chips keep their configured offset from the base font size,
-    which the HUD font slider can move at runtime. */
-const CHILD_FONT_DELTA = LABELS.fontSize - LABELS.childFontSize
-const ROOM_FONT_DELTA = LABELS.roomFontSize - LABELS.fontSize
-
-function estimateWidth(title: string, kids: number, fontScale = 1): number {
+function estimateWidth(
+  title: string,
+  kids: number,
+  labels: LayoutConfig['labels'],
+  fontScale = 1,
+): number {
   return Math.min(
-    CHIP_MAX_W,
-    LABELS.chipBaseWidth + title.length * LABELS.chipCharWidth * fontScale +
-      (kids > 0 ? LABELS.chipKidsWidth : 0),
+    labels.chipMaxWidth,
+    labels.chipBaseWidth + title.length * labels.chipCharWidth * fontScale +
+      (kids > 0 ? labels.chipKidsWidth : 0),
   )
 }
 
@@ -86,14 +75,29 @@ interface Label<TAttr> {
  * a minimal content peek.
  */
 export function NodeLabelLayer() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config } = useCavin()
   const layerRef = useRef<HTMLDivElement>(null)
+  // Per-instance tuning aliases (from the resolved config, not the module
+  // defaults) — used by the paint loop and the pointer handlers below.
+  const { labels: LABELS, interaction: INTERACT, focus: FOCUS } = config
+  /** Click vs drag: pointer must travel this many screen px to become a drag. */
+  const DRAG_THRESHOLD = INTERACT.dragThreshold
+  /** Drop-target snap radius (screen px): within this of another node's dot,
+      releasing the drag re-parents instead of free-placing. */
+  const DROP_RADIUS = INTERACT.dropRadius
+  const CHIP_H = LABELS.chipHeight
+  /** A parent's label becomes the room's nameplate once its room is this open. */
+  const NAMEPLATE_OPEN = LABELS.nameplateOpen
+  /** Child/room chips keep their configured offset from the base font size,
+      which the HUD font slider can move at runtime. */
+  const CHILD_FONT_DELTA = LABELS.fontSize - LABELS.childFontSize
+  const ROOM_FONT_DELTA = LABELS.roomFontSize - LABELS.fontSize
 
   useEffect(() => {
     const layer = layerRef.current!
     const noun = adapter.noun
     const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
-    const paletteOf = paletteMemo(adapter)
+    const paletteOf = paletteMemo(adapter, config)
 
     // Imperative hover-preview bubble (label + body + tags), built once.
     const preview = document.createElement('div')
@@ -165,7 +169,7 @@ export function NodeLabelLayer() {
       const focusK = smoothstep(0, 1, focusBlend)
       // Focus mode overrides the zoom gate: the constellation's names stay
       // readable even zoomed all the way out.
-      const band = focus ? Math.max(chipOpacity(cam.zoom, zRooms), focusK) : chipOpacity(cam.zoom, zRooms)
+      const band = focus ? Math.max(chipOpacity(cam.zoom, zRooms, config), focusK) : chipOpacity(cam.zoom, zRooms, config)
       const w = window.innerWidth
       const h = window.innerHeight
 
@@ -210,18 +214,19 @@ export function NodeLabelLayer() {
         ? focusRingTargets(
             world,
             focus,
-            roomMorph(world, world.nodeById.get(focus.id)!, cam.zoom, cam, zCards, morph).pos,
+            roomMorph(world, world.nodeById.get(focus.id)!, cam.zoom, cam, zCards, morph, config).pos,
             cam.zoom,
+            config,
           )
         : null
       const dispOf = (id: string, m?: RoomMorph): [number, number] => {
-        const base = (m ?? roomMorph(world, world.nodeById.get(id)!, cam.zoom, cam, zCards, morph)).pos
+        const base = (m ?? roomMorph(world, world.nodeById.get(id)!, cam.zoom, cam, zCards, morph, config)).pos
         const t = ringTargets?.get(id)
         if (!t) return base
         return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
       }
       const candidates: Label<unknown>[] = []
-      for (const { node: n, morph: m } of visibleNodes(world, cam, w, h, zCards, 60, morph)) {
+      for (const { node: n, morph: m } of visibleNodes(world, cam, w, h, zCards, 60, morph, config)) {
         if (focus && !focus.nodeIds.has(n.id)) continue
         const isChild = !!n.parentId && !n.state.placed
         let open = 1
@@ -248,7 +253,7 @@ export function NodeLabelLayer() {
           // radius, so early pass-through (circle growing + fading) doesn't
           // drag the label upward with it.
           const kidCount = world.childrenByParent.get(n.id)?.length ?? 0
-          ay = sy - roomRadius(kidCount, cam.zoom) * cam.zoom * roomRadiusEase(m.roomOpen) - 8
+          ay = sy - roomRadius(kidCount, cam.zoom, config) * cam.zoom * roomRadiusEase(m.roomOpen, config) - 8
         } else if (isChild) {
           place = 'below'
           ay = sy + 12
@@ -319,7 +324,7 @@ export function NodeLabelLayer() {
 
       const box = (l: Label<unknown>): Placed => {
         const kids = world.childrenByParent.get(l.node.id)?.length ?? 0
-        const cw = estimateWidth(labelOf(adapter, l.node), kids, fontScale)
+        const cw = estimateWidth(labelOf(adapter, l.node), kids, LABELS, fontScale)
         if (l.place === 'below') {
           return { x0: l.ax - cw / 2 - 2, y0: l.ay - 2, x1: l.ax + cw / 2 + 2, y1: l.ay + chipH + 2 }
         }
@@ -492,7 +497,7 @@ export function NodeLabelLayer() {
       let bestAnyD = DROP_RADIUS
       for (const n of world.nodes) {
         if (n.id === drag.nodeId || n.state.locked || drag.descendants?.has(n.id)) continue
-        const m = roomMorph(world, n, cam.zoom, cam, zCards, morph)
+        const m = roomMorph(world, n, cam.zoom, cam, zCards, morph, config)
         if (n.parentId && !n.state.placed && m.open < 0.3) continue // folded away — invisible
         const sx = w / 2 + (m.pos[0] - cam.x) * cam.zoom
         const sy = h / 2 + (m.pos[1] - cam.y) * cam.zoom
