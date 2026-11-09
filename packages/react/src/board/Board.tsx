@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent }
 import type { Camera } from '@cavin/core'
 import { focusForSelection, nearestGroup, revealZoom } from '@cavin/core'
 import { useCavin } from '../context'
+import { resolveHotkey } from '../keymap'
 import { DotsCanvas } from './DotsCanvas'
 import { ClusterLabels } from './ClusterLabels'
 import { NodeLabelLayer } from './NodeLabelLayer'
@@ -17,7 +18,7 @@ import { NodeLabelLayer } from './NodeLabelLayer'
  * per-instance config (context), not the module defaults.
  */
 export function Board() {
-  const { view: useView, world: useWorld, config, frame } = useCavin()
+  const { view: useView, world: useWorld, config, frame, keymap } = useCavin()
   const containerRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
@@ -163,34 +164,39 @@ export function Board() {
     return () => el.removeEventListener('wheel', onWheel)
   }, [useView, useWorld, config])
 
-  // Keyboard: ESC release, Delete/L/N on the selection, ignored while typing.
+  // Keyboard: the one hotkey policy (keymap.ts) — ESC release, Delete/L/N/C
+  // on the selection. Guards (typing targets, IME, modifiers) live there.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.isComposing) return // don't fire hotkeys mid-IME composition
+      const action = resolveHotkey(keymap, e)
+      if (!action) return
       const view = useView.getState()
       const worldStore = useWorld.getState()
-      if (e.key === 'Escape') {
-        view.select(null)
-        worldStore.setEditing(null)
-        return
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && view.selectedId) {
-        e.preventDefault()
-        worldStore.removeNode(view.selectedId)
-      } else if (e.key.toLowerCase() === 'l' && view.selectedId) {
-        worldStore.toggleLock(view.selectedId)
-      } else if (e.key.toLowerCase() === 'c' && view.selectedId) {
-        worldStore.addChild(view.selectedId)
-      } else if (e.key.toLowerCase() === 'n') {
-        worldStore.addNode([view.cam.x, view.cam.y])
+      e.preventDefault()
+      switch (action) {
+        case 'select-none':
+          view.select(null)
+          worldStore.setEditing(null)
+          break
+        case 'delete':
+          if (view.selectedId) worldStore.removeNode(view.selectedId)
+          break
+        case 'toggle-lock':
+          if (view.selectedId) worldStore.toggleLock(view.selectedId)
+          break
+        case 'add-child':
+          if (view.selectedId) worldStore.addChild(view.selectedId)
+          break
+        case 'add-node':
+          worldStore.addNode([view.cam.x, view.cam.y])
+          break
+        case 'focus-search':
+          break // owned by SearchBox
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [useView, useWorld])
+  }, [useView, useWorld, keymap])
 
   // Click a node label → ease the camera to it. Zoom past the pass-through
   // point (zoom = hierarchy), so selecting a parent lands you *inside* its

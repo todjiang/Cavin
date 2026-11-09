@@ -3,8 +3,10 @@ import type {
   CavinEdge,
   CavinNode,
   CavinStorage,
+  Command,
   DeepPartial,
   LayoutConfig,
+  MutationResult,
   SchemaAdapter,
 } from '@cavin/core'
 import { layoutConfig, mergeConfig } from '@cavin/core'
@@ -14,6 +16,9 @@ import { createViewStore } from './view-store'
 import { createWorldStore } from './world-store'
 import { createFrameHolder } from './frame'
 import { syncSelection } from './selection'
+import { defaultKeymap } from './keymap'
+import type { Keymap } from './keymap'
+import type { CavinRenderers } from './renderers'
 import { Board } from './board/Board'
 import { Minimap } from './board/Minimap'
 import { Hud } from './ui/Hud'
@@ -46,6 +51,13 @@ export interface CavinCanvasProps<TAttr> {
   urlSync?: boolean
   /** localStorage key for view tuning (LOD sliders, font). Omit → session-only. */
   viewStorageKey?: string
+  /** Observe every edit: called with each command and its result (the
+      command layer's loggable representation — audit, sync, telemetry). */
+  onMutation?: (cmd: Command<TAttr>, result: MutationResult<TAttr>) => void
+  /** Override hotkey bindings; merged over the defaults. */
+  keymap?: Partial<Keymap>
+  /** Replace generated UI pieces (detail-form fields) without forking. */
+  renderers?: CavinRenderers<TAttr>
   className?: string
 }
 
@@ -63,7 +75,8 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       urlSync: props.urlSync,
       config,
     })
-    return { adapter: props.adapter, title: props.title, config, view }
+    const keymap: Keymap = { ...defaultKeymap, ...props.keymap }
+    return { adapter: props.adapter, title: props.title, config, view, keymap, renderers: props.renderers }
   })
 
   const [stores] = useState(() => {
@@ -78,6 +91,7 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       initialNodes: props.initialNodes,
       initialEdges: props.initialEdges,
       onSelectRequest: (id) => value.view.getState().select(id),
+      onMutation: props.onMutation,
     })
     const frame = createFrameHolder(value.config)
     return { world, frame }

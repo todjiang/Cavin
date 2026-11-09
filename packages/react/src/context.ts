@@ -4,6 +4,8 @@ import { validateEdgeRecords, validateRecords } from '@cavin/core'
 import type { ViewStore } from './view-store'
 import type { WorldStore } from './world-store'
 import type { FrameHolder } from './frame'
+import type { Keymap } from './keymap'
+import type { CavinRenderers } from './renderers'
 
 /**
  * Per-instance composition: one context per mounted canvas carrying the
@@ -22,6 +24,10 @@ export interface CavinContextValue<TAttr = unknown> {
   world: WorldStore<TAttr>
   /** Per-canvas frame owner: focus-blend animation, viewport, shared Scene. */
   frame: FrameHolder
+  /** The resolved hotkey bindings (defaults + host override). */
+  keymap: Keymap
+  /** Host renderer overrides; unset slots use the built-ins. */
+  renderers?: CavinRenderers<TAttr>
 }
 
 export const CavinContext = createContext<CavinContextValue | null>(null)

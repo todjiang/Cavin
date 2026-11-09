@@ -2,24 +2,21 @@
   box-sizing: border-box;
 }
 
-html,
-body,
-#root {
-  margin: 0;
+/* The canvas is embeddable: it scopes every style under .app and never
+   touches the host page's html/body/#root — mounting it must not rewrite
+   the document that surrounds it. */
+.app {
+  position: relative;
+  width: 100%;
   height: 100%;
+  margin: 0;
   overflow: hidden;
   background: #04060d;
   font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
   color: #cdd6e4;
 }
 
-.app {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-canvas {
+.app canvas {
   display: block;
 }
 
@@ -89,7 +86,7 @@ canvas {
   will-change: opacity;
 }
 
-.wing-label {
+.cluster-label-top {
   font-size: 17px;
   letter-spacing: 0.22em;
   text-transform: uppercase;

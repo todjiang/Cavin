@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { CavinNode, FieldDescriptor } from '@cavin/core'
 import { bodyOf, fieldValueOf, labelOf, subtree, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
 import { useCavin } from '../context'
@@ -16,7 +16,7 @@ import { formatTimeValue, timeDomainOf } from './time'
  * bypass the lock.
  */
 export function DetailPanel() {
-  const { adapter, view: useView, world: useWorld, config } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, renderers } = useCavin()
   const selectedId = useView((s) => s.selectedId)
   const select = useView((s) => s.select)
   const world = useWorld((s) => s.world)
@@ -186,8 +186,18 @@ export function DetailPanel() {
 
       {editing ? (
         <div className="detail-edit">
-          {EDITABLE.map((f) =>
-            f.kind === 'multiline' ? (
+          {EDITABLE.map((f) => {
+            // Renderer slot: a host can replace the generated control for a
+            // field (date picker, select, rich editor) via the `renderers`
+            // prop — the draft plumbing stays ours.
+            const custom = renderers?.field?.({
+              field: f,
+              node,
+              value: drafts[f.key] ?? '',
+              onChange: (v) => setDrafts((d) => ({ ...d, [f.key]: String(v) })),
+            })
+            if (custom != null) return <Fragment key={f.key}>{custom}</Fragment>
+            return f.kind === 'multiline' ? (
               <textarea
                 key={f.key}
                 className="detail-textarea"
@@ -214,8 +224,8 @@ export function DetailPanel() {
                   if (e.key === 'Escape') cancel()
                 }}
               />
-            ),
-          )}
+            )
+          })}
           <div className="detail-actions">
             <button className="detail-btn primary" onClick={save} disabled={!dirty}>
               Save

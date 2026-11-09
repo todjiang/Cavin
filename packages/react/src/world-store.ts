@@ -4,8 +4,10 @@ import type {
   CavinEdge,
   CavinNode,
   CavinStorage,
+  Command,
   DeepPartial,
   LayoutConfig,
+  MutationResult,
   SchemaAdapter,
   World,
   WorldEdge,
@@ -51,6 +53,12 @@ export interface WorldStoreOptions<TAttr> {
    * stores never import each other — this callback IS the call between them.
    */
   onSelectRequest?: (id: string | null) => void
+  /**
+   * The one observability hook the command layer was designed for: called
+   * with every command and its result, errors included — a host can log,
+   * audit or sync edits without forking the component.
+   */
+  onMutation?: (cmd: Command<TAttr>, result: MutationResult<TAttr>) => void
 }
 
 export interface WorldState<TAttr = unknown> {
@@ -130,6 +138,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     /** Dispatch through the core command funnel; surface notices/toasts. */
     const dispatch = (cmd: Parameters<typeof applyCommand<TAttr>>[1]) => {
       const res = applyCommand(get().world, cmd, adapter, config)
+      options.onMutation?.(cmd, res)
       if (!res.ok) {
         const text = res.error ? errorText(adapter.noun, res.error) : null
         if (text) get().toast(text)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { bodyOf, labelOf, searchTextOf, tagsOf, timeOf } from '@cavin/core'
 import type { CavinNode } from '@cavin/core'
 import { useCavin } from '../context'
+import { resolveHotkey } from '../keymap'
 import { buildPalette } from '../presentation'
 
 const MAX_RESULTS = 8
@@ -14,7 +15,7 @@ const MAX_RESULTS = 8
  * detail panel. `?q=` URL param pre-opens with a query (previewing).
  */
 export function SearchBox() {
-  const { adapter, view: useView, world: useWorld, config } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, keymap } = useCavin()
   const select = useView((s) => s.select)
   const world = useWorld((s) => s.world)
   const palette = useMemo(() => buildPalette(adapter, world, config), [adapter, world, config])
@@ -64,20 +65,19 @@ export function SearchBox() {
     setActive(0)
   }, [query])
 
-  // Global hotkeys.
+  // Global hotkeys: the shared policy (keymap.ts) — '/' focuses search when
+  // not typing, Cmd/Ctrl+K anywhere. Guards live in one module now.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const inInput = (e.target as HTMLElement)?.tagName === 'INPUT'
-      if ((e.key === '/' && !inInput) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
-        e.preventDefault()
-        inputRef.current?.focus()
-        inputRef.current?.select()
-        setOpen(true)
-      }
+      if (resolveHotkey(keymap, e) !== 'focus-search') return
+      e.preventDefault()
+      inputRef.current?.focus()
+      inputRef.current?.select()
+      setOpen(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [keymap])
 
   const go = (node: CavinNode) => {
     select(node.id) // Board eases the camera to the node and DetailPanel opens

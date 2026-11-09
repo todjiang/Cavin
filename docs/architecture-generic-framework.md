@@ -78,7 +78,14 @@ cavin/
 │       ├── src/CavinCanvas.tsx  the embeddable component + CavinProvider
 │       ├── src/board/           Board, DotsCanvas, NodeLabelLayer, Minimap, ClusterLabels
 │       ├── src/ui/              DetailPanel, SearchBox, Hud, DimensionSlider, Toast
-│       └── src/registries.ts    renderer/editor/hotkey registries + defaults
+│       ├── src/keymap.ts          the one hotkey policy (Board + SearchBox consume it)
+│       ├── src/renderers.ts       renderer slots (detail-field overrides)
+│       ├── src/session.ts         boot/reset/persist (injected scheduler)
+│       ├── src/editor.ts          frame-coalesced drag buffer
+│       ├── src/notices.ts         mutation-result → toast copy tables
+│       ├── src/selection.ts       cross-store selection invariants
+│       ├── src/frame.ts           per-frame scene + focus-blend owner
+│       └── src/suggestions.ts     call-site suggestion cache
 └── examples/
     └── knowledge-palace/        the current app, rebuilt as a consumer
         ├── src/adapter.ts       KnowledgeAdapter (wing/room/title/body/tags/embedding)
@@ -309,7 +316,8 @@ export interface LayoutConfig {
   config={{ lod: { zCards: 0.6 } }}   // optional overrides
   initialNodes={seededPalace}         // optional machine draft
   onMutation={(cmd, result) => …}     // optional observability hook
-  renderers={{ detailFields: MyFields }}  // optional registry overrides
+  keymap={{ addNode: 'm' }}           // optional hotkey overrides
+  renderers={{ field: MyField }}      // optional renderer overrides
   className="h-full w-full"
 />
 ```
@@ -328,11 +336,11 @@ Every place the UI currently dereferences a schema field gets its content throug
 |---|---|---|
 | Chip/label text | `node.title` | `adapter.labelOf(node)` |
 | Cluster labels, minimap, breadcrumb | `wingName`/`roomName` | `GroupCluster.name` / `path` |
-| Detail panel form | hardcoded title/body/tags inputs | generated from `adapter.fields`; wholesale replaceable via `renderers.detailFields` |
+| Detail panel form | hardcoded title/body/tags inputs | generated from `adapter.fields`; per-field control replaceable via `renderers.field` |
 | Search | substring over title/tags/body | `adapter.searchTextOf` (default `labelOf`) |
 | Dot/chip/cluster colors | `node.color`/`node.hue` | `adapter.colorOf` or default hue rotation |
-| Toasts | literal strings in the store | `MutationResult.notice.kind` → message table in the UI, interpolated with `adapter.noun` |
-| Hotkeys | N/C/L/Del/ESC in `Board.tsx` | default keymap, replaceable via `renderers.hotkeys` |
+| Toasts | literal strings in the store | `MutationResult.notice.kind` → message table in the UI (`notices.ts`), interpolated with `adapter.noun` |
+| Hotkeys | N/C/L/Del/ESC in `Board.tsx` | one keymap module (`keymap.ts`), replaceable via the `keymap` prop |
 | Time slider | `createdAt` + module-load range | shown only if the adapter declares a numeric `kind: 'number'` field flagged as the time axis; range derived from data |
 
 ### 5.4 Rendering pipeline — unchanged

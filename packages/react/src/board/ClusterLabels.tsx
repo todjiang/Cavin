@@ -34,7 +34,7 @@ export function ClusterLabels() {
             style={{ transform: `translate(${w.centroid[0]}px, ${w.centroid[1]}px)` }}
           >
             <div
-              className="wing-label"
+              className="cluster-label-top"
               style={{ opacity: clusterLevels(0, zoom, zRooms, zCards) * 0.95 * dim, color: w.color, borderColor: w.color, transform: `translate(-50%, -50%) scale(${inv})` }}
             >
               {w.name}
