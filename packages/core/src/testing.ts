@@ -41,14 +41,10 @@ export function runAdapterConformance<TAttr>(
       fail('validate', 'produced a node without id/groupPath')
       continue
     }
-    // groupOf never throws and returns strings.
-    try {
-      const path = adapter.groupOf(node)
-      if (!Array.isArray(path) || path.some((s) => typeof s !== 'string')) {
-        fail('groupOf', 'did not return a string[] for a valid node')
-      }
-    } catch (err) {
-      fail('groupOf', `threw: ${String(err)}`)
+    // groupPath entries are strings (validate is the host's import seam and
+    // sets it — see CavinNode.groupPath).
+    if (node.groupPath.some((s) => typeof s !== 'string')) {
+      fail('validate', 'produced a node with a non-string groupPath entry')
     }
     // labelOf returns a non-empty string.
     try {

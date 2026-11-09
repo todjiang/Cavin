@@ -67,10 +67,6 @@ function fromLegacy(n: Record<string, any>): CavinNode<KnowledgeAttrs> | null {
 export const knowledgeAdapter: SchemaAdapter<KnowledgeAttrs> = {
   noun: 'note',
 
-  groupOf(node) {
-    return node.groupPath ?? []
-  },
-
   labelOf(node) {
     return node.attributes.title || 'Untitled note'
   },

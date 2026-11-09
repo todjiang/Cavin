@@ -24,10 +24,11 @@ export interface CavinNode<TAttr = unknown> {
   parentId?: string
   /** 2D world position (world units = px at zoom 1). */
   position: [number, number]
-  /** Cluster path, coarse → fine. Denormalized onto the node so mutations
-      (re-parent) can move a whole subtree between clusters; `adapter.groupOf`
-      fills it for nodes that arrive without one, and hosts may derive it
-      from attributes there. Empty array = ungrouped (renders as free space). */
+  /** Cluster path, coarse → fine. AUTHORITATIVE and denormalized: the host
+      sets it at import (in `validate`) and the framework never recomputes it
+      from attributes — changing a grouping attribute does NOT move a node;
+      only the re-parent command rewrites `groupPath`. Length may vary per
+      node; empty array = ungrouped (renders as free space). */
   groupPath: string[]
   /** Host-defined payload — title/body/tags/embedding in the demo. */
   attributes: TAttr

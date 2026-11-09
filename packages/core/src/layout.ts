@@ -76,8 +76,9 @@ function colorForGroup(
  * clustered around their top-level center, members Gaussian-jittered around
  * the leaf centroid with radius scaled by `adapter.layoutVectorOf`
  * similarity. Pure — used only for the seeded first boot (and demo resets);
- * afterwards positions live in the store and persist. Nodes WITHOUT a
- * groupPath get one from `adapter.groupOf` first.
+ * afterwards positions live in the store and persist. `groupPath` is
+ * authoritative — every node must arrive with one (the host's `validate`
+ * sets it; see `CavinNode.groupPath`).
  */
 export function layoutNodes<TAttr>(
   raw: CavinNode<TAttr>[],
@@ -87,7 +88,7 @@ export function layoutNodes<TAttr>(
   const { topLevelRadius, groupSpreadMin, groupSpreadMax, itemSigma, childOrbitSigma } =
     config.layout
   const rand = hashRand(0x1a7)
-  const nodes = raw.map((n) => ({ ...n, groupPath: n.groupPath ?? adapter.groupOf(n) }))
+  const nodes = raw.map((n) => ({ ...n }))
 
   // Top-level groups evenly on a large circle (first-encounter order).
   const topOrder = topLevelOrder(nodes)
@@ -201,12 +202,9 @@ export function deriveWorld<TAttr>(
   confirmedEdges: CavinEdge[] = [],
   config: LayoutConfig = layoutConfig,
 ): World<TAttr> {
-  // Fresh copies with a normalized groupPath — callers may pass stored
-  // objects. groupPath is adapter-derived when a node arrives without one.
-  const nodes: CavinNode<TAttr>[] = rawNodes.map((n) => ({
-    ...n,
-    groupPath: n.groupPath ?? adapter.groupOf(n),
-  }))
+  // Fresh copies — callers may pass stored objects, and the orphan-promotion
+  // below mutates parentId. groupPath is authoritative on the node.
+  const nodes: CavinNode<TAttr>[] = rawNodes.map((n) => ({ ...n }))
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
 
   // Tree indexes; orphan children are promoted to roots defensively.

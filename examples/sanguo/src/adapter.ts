@@ -22,10 +22,6 @@ function isRole(v: unknown): v is Role {
 export const sanguoAdapter: SchemaAdapter<SanguoAttrs> = {
   noun: 'person',
 
-  groupOf(node) {
-    return node.groupPath ?? [node.attributes.camp, node.attributes.role]
-  },
-
   labelOf(node) {
     const { name, courtesy } = node.attributes
     return courtesy ? `${name}（${courtesy}）` : name

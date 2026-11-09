@@ -34,11 +34,6 @@ export interface SchemaAdapter<TAttr = unknown> {
   /** Human name for an item ("note", "task", "organism") — drives all copy. */
   noun: string
 
-  /** Cluster path for a node, coarse → fine. Called for nodes that arrive
-      without a denormalized `groupPath` (fresh imports); length may vary per
-      node; an empty array means "ungrouped" (renders as free space). */
-  groupOf(node: CavinNode<TAttr>): string[]
-
   /** One-line label for chips, minimap, breadcrumb, toasts, search hits. */
   labelOf(node: CavinNode<TAttr>): string
 

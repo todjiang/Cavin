@@ -141,10 +141,6 @@ export interface SchemaAdapter<TAttr> {
   /** Human name for an item ("note", "task", "organism") — drives all copy. */
   noun: string
 
-  /** Cluster path for a node, coarse → fine. Length may vary per node;
-      an empty array means "ungrouped" (renders as free space). */
-  groupOf(node: CavinNode<TAttr>): string[]
-
   /** One-line label for chips, minimap, breadcrumb, toasts, search hits. */
   labelOf(node: CavinNode<TAttr>): string
 
@@ -181,7 +177,7 @@ export interface FieldDescriptor<TAttr> {
 }
 ```
 
-The demo's adapter is mechanical: `groupOf = [wingName, roomName]`, `labelOf = title`, `fields = [title, body, tags]`, `layoutVectorOf = embedding`, `validate` ≈ today's `validNode` (`src/data/persist.ts:31`). `createdAt` moves into attributes with a `number` field, and `TIME_MIN/TIME_MAX` are derived per-dataset at load instead of at module load.
+The demo's adapter is mechanical: `validate` sets `groupPath = [wingName, roomName]`, `labelOf = title`, `fields = [title, body, tags]`, `layoutVectorOf = embedding`, `validate` ≈ today's `validNode` (`src/data/persist.ts:31`). `createdAt` moves into attributes with a `number` field, and `TIME_MIN/TIME_MAX` are derived per-dataset at load instead of at module load.
 
 ### 4.3 Derived world: groups replace wings/rooms
 
@@ -390,7 +386,7 @@ Five phases, each independently testable, none breaking the demo. Phases P1–P2
 ## 8. Testing Strategy
 
 - **Keep and port** `layout.test.ts` to `@cavin/core` — deriveWorld invariants (orphan promotion, child re-anchoring, centroid rules) and mutation rules (lock shielding, cycle guard, rejoin) are framework contract tests.
-- **New: adapter conformance suite.** `@cavin/core/testing` exports `runAdapterConformance(adapter, samples)` asserting: `groupOf` never throws and returns strings; `createDefault` passes `validate`; `labelOf` returns non-empty; `validate` drops malformed records without throwing; `fields` keys exist on `attributes`. Every host adapter — starting with the demo's — runs the same suite.
+- **New: adapter conformance suite.** `@cavin/core/testing` exports `runAdapterConformance(adapter, samples)` asserting: `validate` produces nodes with string `groupPath` entries; `createDefault` passes `validate`; `labelOf` returns non-empty; `validate` drops malformed records without throwing; `fields` keys exist on `attributes`. Every host adapter — starting with the demo's — runs the same suite.
 - **New: command invariants.** Property-style tests over `applyCommand`: no command mutates the input world; locked nodes are unmoved by any command sequence; `reparent` can never create a cycle; `remove` never removes a locked descendant.
 - **UI:** the second example app from P4 is the regression harness for "the framework is actually generic" — it must run with zero framework changes.
 
