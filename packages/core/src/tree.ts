@@ -93,3 +93,30 @@ export function nearestGroup<TAttr>(
   }
   return best
 }
+
+/**
+ * Stable parents-first ordering of a node array: sort by tree depth (parent
+ * chain length), ties keep the original array order. Cycles are walked with
+ * a seen-guard, so cyclic input degrades to its original order instead of
+ * hanging. `deriveWorld` and `layoutNodes` both require this contract —
+ * parents precede children — and repair violations here rather than
+ * silently anchoring children to a parent's stale stored position.
+ */
+export function orderParentsFirst<TAttr>(nodes: CavinNode<TAttr>[]): CavinNode<TAttr>[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const depthOf = (n: CavinNode<TAttr>): number => {
+    let d = 0
+    const seen = new Set<string>()
+    let cur: CavinNode<TAttr> | undefined = n
+    while (cur?.parentId && byId.has(cur.parentId) && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      d++
+      cur = byId.get(cur.parentId)
+    }
+    return d
+  }
+  return nodes
+    .map((n, i) => [n, i] as const)
+    .sort((a, b) => depthOf(a[0]) - depthOf(b[0]) || a[1] - b[1])
+    .map(([n]) => n)
+}

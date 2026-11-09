@@ -1,5 +1,5 @@
 import type { Camera, CavinNode, SelectionFocus, World } from './types'
-import { smoothstep } from './layout'
+import { smoothstep } from './math'
 import { layoutConfig } from './config'
 
 const { lod: LOD, room: ROOM, labels: LABELS, focus: FOCUS } = layoutConfig/**

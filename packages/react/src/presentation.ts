@@ -19,7 +19,7 @@ export function buildPalette<TAttr>(
   adapter: SchemaAdapter<TAttr>,
   world: World<TAttr>,
 ): Palette<TAttr> {
-  const colorIndex = nodeColorIndex(world, adapter)
+  const colorIndex = nodeColorIndex(world)
   const range = timeRangeOf(world.nodes, adapter)
   const neutral = colorIndex.get('')!
   return {

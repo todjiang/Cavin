@@ -4,12 +4,9 @@ import { suggestEdges } from './edges'
 import type { World } from './types'
 import { family, makeNode, testAdapter } from './test-helpers'
 import type { TestAttrs } from './test-helpers'
-import {
-  deriveWorld,
-  focusForSelection,
-  promoteToRootNodes,
-  reparentNodes,
-} from './layout'
+import { deriveWorld } from './layout'
+import { focusForSelection } from './selection'
+import { promoteToRootNodes, reparentNodes, layoutNodes } from './mutations'
 import { subtree } from './tree'
 
 /**
@@ -57,6 +54,50 @@ describe('deriveWorld', () => {
     expect(world.depthById.get('a')).toBe(0)
     expect(world.depthById.get('b')).toBe(1)
     expect(world.depthById.get('c')).toBe(2)
+  })
+
+  it('repairs a child-first input: re-anchoring chains through every generation', () => {
+    // Stored child positions are deliberately WRONG: without the parents-
+    // first repair, c anchors to b's stale stored position and the chain
+    // is silently wrong. With repair, both ride their parent + relOffset.
+    const nodes = [
+      makeNode({ id: 'a', position: [100, 100] }),
+      makeNode({
+        id: 'b',
+        parentId: 'a',
+        state: { relOffset: [10, 0] },
+        position: [999, 999],
+      }),
+      makeNode({
+        id: 'c',
+        parentId: 'b',
+        state: { relOffset: [0, 10] },
+        position: [999, 999],
+      }),
+    ]
+    const world = deriveWorld([nodes[2], nodes[1], nodes[0]], testAdapter)
+    expect(world.nodeById.get('b')!.position).toEqual([110, 100])
+    expect(world.nodeById.get('c')!.position).toEqual([110, 110])
+  })
+
+  it('emits parents-first node order even for child-first input', () => {
+    const [a, b, c, d] = family()
+    const world = deriveWorld([c, b, d, a], testAdapter)
+    expect(world.nodes.map((n) => n.id)).toEqual(['d', 'a', 'b', 'c'])
+  })
+
+  it('lays a child-first chain around its parent, not the leaf centroid', () => {
+    const [a, b, c] = family()
+    const laid = layoutNodes([c, b, a], testAdapter)
+    const byId = new Map(laid.map((n) => [n.id, n]))
+    const dist = (x: string, y: string) =>
+      Math.hypot(
+        byId.get(x)!.position[0] - byId.get(y)!.position[0],
+        byId.get(x)!.position[1] - byId.get(y)!.position[1],
+      )
+    // childOrbitSigma × 3-sigma gauss bound ≈ 54 world units.
+    expect(dist('b', 'a')).toBeLessThan(60)
+    expect(dist('c', 'b')).toBeLessThan(60)
   })
 
   it('does not mutate the input nodes', () => {

@@ -12,17 +12,12 @@ export { layoutConfig, mergeConfig } from './config'
 export { hsla } from './colors'
 export type { CavinEdge, WorldEdge } from './edges'
 export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges, validateEdgeRecords } from './edges'
-export { subtree, subtreeFrom, deepestDepth, leafGroups, nearestGroup, groupsByDepth } from './tree'
+export { subtree, subtreeFrom, deepestDepth, leafGroups, nearestGroup, groupsByDepth, orderParentsFirst } from './tree'
 export type { SubtreeOptions } from './tree'
-export {
-  groupPathKey,
-  layoutNodes,
-  deriveWorld,
-  nodeColorIndex,
-  focusForSelection,
-  smoothstep,
-  timeFactor,
-} from './layout'
+export { groupPathKey, nodeColorIndex } from './clusters'
+export { smoothstep, timeFactor } from './math'
+export { focusForSelection } from './selection'
+export { layoutNodes, deriveWorld } from './layout'
 export {
   lodLevels,
   clusterLevels,
