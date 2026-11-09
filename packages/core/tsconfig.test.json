@@ -1,0 +1,13 @@
+{
+  // Typecheck-only project: the whole src INCLUDING the contract tests.
+  // The publishable build (tsconfig.json) excludes *.test.ts and
+  // test-helpers so dist/ ships no vitest artifacts — this config keeps
+  // those files under `npm run typecheck` without emitting anything.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": []
+}

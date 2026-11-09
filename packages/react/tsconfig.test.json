@@ -1,0 +1,12 @@
+{
+  // Typecheck-only project including the package's tests; the publishable
+  // build (tsconfig.json) excludes *.test.ts so dist/ ships no vitest
+  // artifacts. See packages/core/tsconfig.test.json for the full rationale.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": []
+}
