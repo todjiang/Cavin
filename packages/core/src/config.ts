@@ -88,6 +88,14 @@ export interface LayoutConfig {
     topRadiusFactor: number
     subRadiusFactor: number
   }
+  /** Scene cull margins (screen px): how far outside the viewport a layer
+      still evaluates nodes. Dots clip tight; labels need room for chip
+      height; the recenter scan wants a little lookahead. */
+  scene: {
+    dotMargin: number
+    labelMargin: number
+    recenterMargin: number
+  }
   layout: {
     /** Initial scatter: top-level groups evenly on a circle of this radius. */
     topLevelRadius: number
@@ -227,6 +235,11 @@ export const layoutConfig: LayoutConfig = {
   blobs: {
     topRadiusFactor: 1.15,
     subRadiusFactor: 1.6,
+  },
+  scene: {
+    dotMargin: 8,
+    labelMargin: 60,
+    recenterMargin: 40,
   },
   layout: {
     topLevelRadius: 1500,

@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { Camera } from '@cavin/core'
-import { focusForSelection, nearestGroup, revealZoom, visibleNodes } from '@cavin/core'
-import type { RoomMorph } from '@cavin/core'
+import { focusForSelection, nearestGroup, revealZoom } from '@cavin/core'
 import { useCavin } from '../context'
 import { DotsCanvas } from './DotsCanvas'
 import { ClusterLabels } from './ClusterLabels'
@@ -18,7 +17,7 @@ import { NodeLabelLayer } from './NodeLabelLayer'
  * per-instance config (context), not the module defaults.
  */
 export function Board() {
-  const { view: useView, world: useWorld, config } = useCavin()
+  const { view: useView, world: useWorld, config, frame } = useCavin()
   const containerRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
@@ -39,6 +38,14 @@ export function Board() {
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick)
       const s = useView.getState()
+      const container = containerRef.current
+      if (container) {
+        // Board is the single viewport source for every layer (paint loops
+        // read it back via the frame holder) and the single driver of the
+        // focus-blend animation — the only place the blend advances.
+        frame.setViewport({ w: container.clientWidth, h: container.clientHeight })
+        frame.advanceFocus(s.selectedId != null && focusForSelection(useWorld.getState().world, s.selectedId) != null)
+      }
 
       if (anim.current.active) {
         const t = anim.current.target
@@ -93,11 +100,12 @@ export function Board() {
           // you instead of sliding off-screen. Deliberately gentle —
           // explicit pans always win (they reset the target directly).
           if (anim.current.active) {
-            const { zCards } = useView.getState()
+            const { zCards, selectedId } = useView.getState()
             const world = useWorld.getState().world
-            const vis = visibleNodes(world, cam, window.innerWidth, window.innerHeight, zCards, 40, undefined, config)
-            let deep: { m: RoomMorph; d: number } | null = null
-            for (const v of vis) {
+            const sc = frame.scene(world, cam, zCards, selectedId, frame.getViewport(), config.scene.recenterMargin)
+            let deep: { m: (typeof sc.entries)[number]['morph']; d: number } | null = null
+            for (const v of sc.entries) {
+              if (v.offscreen) continue
               if (v.morph.pass <= 0.5) continue
               const d = world.depthById.get(v.node.id) ?? 0
               if (!deep || d > deep.d) deep = { m: v.morph, d }
@@ -117,7 +125,7 @@ export function Board() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [useView, useWorld, config])
+  }, [useView, useWorld, config, frame])
 
   // Wheel = zoom to cursor (non-passive so we can preventDefault).
   useEffect(() => {

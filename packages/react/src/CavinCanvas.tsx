@@ -12,6 +12,7 @@ import { CavinContext } from './context'
 import type { CavinContextValue } from './context'
 import { createViewStore } from './view-store'
 import { createWorldStore } from './world-store'
+import { createFrameHolder } from './frame'
 import type { WorldStore } from './world-store'
 import { Board } from './board/Board'
 import { Minimap } from './board/Minimap'
@@ -69,7 +70,8 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       initialNodes: props.initialNodes,
       initialEdges: props.initialEdges,
     })
-    return { adapter: props.adapter, title: props.title, config, view, world }
+    const frame = createFrameHolder(config)
+    return { adapter: props.adapter, title: props.title, config, view, world, frame }
   })
 
   useSelectionBridge(value.view, value.world)

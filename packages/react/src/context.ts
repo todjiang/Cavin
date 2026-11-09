@@ -3,6 +3,7 @@ import type { CavinNode, CavinStorage, LayoutConfig, SchemaAdapter, WorldSnapsho
 import { validateEdgeRecords, validateRecords } from '@cavin/core'
 import type { ViewStore } from './view-store'
 import type { WorldStore } from './world-store'
+import type { FrameHolder } from './frame'
 
 /**
  * Per-instance composition: one context per mounted canvas carrying the
@@ -19,6 +20,8 @@ export interface CavinContextValue<TAttr = unknown> {
   config: LayoutConfig
   view: ViewStore
   world: WorldStore<TAttr>
+  /** Per-canvas frame owner: focus-blend animation, viewport, shared Scene. */
+  frame: FrameHolder
 }
 
 export const CavinContext = createContext<CavinContextValue | null>(null)
