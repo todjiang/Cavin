@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CavinEdge } from './edges'
-import { applyCommand, applyDragFrame } from './commands'
+import { applyCommand } from './commands'
 import { deriveWorld } from './layout'
 import { family, makeNode, testAdapter } from './test-helpers'
 import type { TestAttrs } from './test-helpers'
@@ -120,40 +120,62 @@ describe('applyCommand', () => {
     expect(res.world!.nodeById.get('a')!.state).toMatchObject({ locked: true, confirmed: true })
   })
 
-  it('move uses the frame fast path for placed nodes (no re-derive)', () => {
+  it('move detaches on the first move, then re-derives every index per frame', () => {
     const world = boot()
     // First move detaches from orbit — structural.
     const first = applyCommand(world, { type: 'move', id: 'b', to: [500, 100] }, testAdapter)
     expect(first.world!.nodeById.get('b')!.state.placed).toBe(true)
     const structural = first.world!
-    // Second move is a positional patch: the world object keeps its identity fields.
+    // Second move is a positional patch, but still a FULL re-derive: the
+    // world may never carry a stale index (childrenByParent, groups) that
+    // disagrees with nodeById.
     const second = applyCommand(structural, { type: 'move', id: 'b', to: [510, 100] }, testAdapter)
     expect(second.world!.nodeById.get('b')!.position).toEqual([510, 100])
-    expect(second.world!.groups).toBe(structural.groups) // untouched by the frame path
+    expect(second.world!.groups).not.toBe(structural.groups)
+    // Every index agrees: childrenByParent holds the same object as
+    // nodeById, and the unplaced child re-anchored to the dragged parent.
+    const b2 = second.world!.nodeById.get('b')!
+    const c2 = second.world!.nodeById.get('c')!
+    expect(second.world!.childrenByParent.get('b')![0]).toBe(c2)
+    expect(c2.position).toEqual([
+      b2.position[0] + c2.state.relOffset![0],
+      b2.position[1] + c2.state.relOffset![1],
+    ])
+  })
+
+  it('move reports a missing node as missing, not locked', () => {
+    const world = boot()
+    expect(applyCommand(world, { type: 'move', id: 'ghost', to: [1, 1] }, testAdapter)).toMatchObject({
+      ok: false,
+      error: 'missing',
+    })
   })
 })
 
-describe('applyDragFrame', () => {
+describe('drag-frame semantics (via the move command)', () => {
   it('moves the placed node and its movable subtree, nothing else', () => {
     const world = boot()
     const placed = applyCommand(world, { type: 'move', id: 'b', to: [400, 400] }, testAdapter).world!
     const b = placed.nodeById.get('b')!
     const c = placed.nodeById.get('c')!
     const delta: [number, number] = [10, -5]
-    const framed = applyDragFrame(placed, 'b', [b.position[0] + 10, b.position[1] - 5])!
-    expect(framed.nodeById.get('b')!.position).toEqual([b.position[0] + 10, b.position[1] - 5])
-    expect(framed.nodeById.get('c')!.position).toEqual([c.position[0] + 10, c.position[1] - 5])
-    expect(framed.nodeById.get('a')!.position).toEqual(world.nodeById.get('a')!.position)
+    const moved = applyCommand(placed, { type: 'move', id: 'b', to: [b.position[0] + 10, b.position[1] - 5] }, testAdapter).world!
+    expect(moved.nodeById.get('b')!.position).toEqual([b.position[0] + 10, b.position[1] - 5])
+    expect(moved.nodeById.get('c')!.position).toEqual([c.position[0] + 10, c.position[1] - 5])
+    expect(moved.nodeById.get('a')!.position).toEqual(world.nodeById.get('a')!.position)
     expect(delta).toEqual([10, -5]) // self-check of the arithmetic above
+    // Both indexes agree: childrenByParent holds the SAME node objects.
+    expect(moved.childrenByParent.get('b')![0]).toBe(moved.nodeById.get('c'))
   })
 
-  it('returns null for unplaced or unknown nodes and zero deltas', () => {
+  it('no-ops on a zero delta and refuses the unplaced/unknown gracefully', () => {
     const world = boot()
-    expect(applyDragFrame(world, 'b', [0, 0])).toBeNull() // unplaced
-    expect(applyDragFrame(world, 'ghost', [1, 1])).toBeNull()
+    expect(applyCommand(world, { type: 'move', id: 'ghost', to: [1, 1] }, testAdapter).ok).toBe(false)
     const placed = applyCommand(world, { type: 'move', id: 'b', to: [400, 400] }, testAdapter).world!
     const pos = placed.nodeById.get('b')!.position
-    expect(applyDragFrame(placed, 'b', [pos[0], pos[1]])).toBeNull() // zero delta
+    const res = applyCommand(placed, { type: 'move', id: 'b', to: [pos[0], pos[1]] }, testAdapter)
+    expect(res.ok).toBe(true)
+    expect(res.world).toBeUndefined() // silent no-op
   })
 
   it('makeNode is part of the fixture contract', () => {

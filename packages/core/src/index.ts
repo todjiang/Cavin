@@ -34,7 +34,7 @@ export {
 } from './lod'
 export type { LodLevels, RoomMorph, VisibleEntry } from './lod'
 export type { Command, MutationNotice, MutationResult } from './commands'
-export { applyCommand, applyDragFrame } from './commands'
+export { applyCommand } from './commands'
 export type { CavinStorage, WorldSnapshot } from './storage'
 export { createMemoryCavinStorage, validateRecords } from './storage'
 export {

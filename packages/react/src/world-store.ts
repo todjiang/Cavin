@@ -14,7 +14,6 @@ import type {
 } from '@cavin/core'
 import {
   applyCommand,
-  applyDragFrame,
   createMemoryCavinStorage,
   deletableSubtree,
   deriveWorld,
@@ -233,8 +232,10 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     }
 
     // Frame-coalesced drag: pointermove can exceed 60Hz, but a drag's position
-    // update only needs to land once per frame. Buffered target, flushed on
-    // the next rAF — at most one world bump per frame.
+    // update only needs to land once per frame. Buffered target, flushed as a
+    // single `move` command per frame — the command re-derives, keeping every
+    // world index consistent (derive is cheap now that suggestions live
+    // outside it).
     let pendingMove: { id: string; pos: [number, number] } | null = null
     let moveRaf = 0
     const flushMove = () => {
@@ -242,8 +243,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
       if (!pendingMove) return
       const { id, pos } = pendingMove
       pendingMove = null
-      const framed = applyDragFrame(get().world, id, pos)
-      if (framed) set({ world: framed })
+      dispatch({ type: 'move', id, to: pos })
     }
 
     return {

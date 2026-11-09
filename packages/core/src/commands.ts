@@ -107,37 +107,14 @@ function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefi
 
 /**
  * Frame-coalesced drag: pointermove can exceed 60Hz, but a drag's position
- * update only needs to land once per frame. Buffers the latest target into
- * a positional patch of the movable subtree — no re-derive. Returns null
- * when there is nothing to do (unknown/unplaced node, zero delta).
+ * update only needs to land once per frame. The store buffers the latest
+ * target and dispatches one `move` command per frame.
+ *
+ * The move command always re-derives. That is affordable because the O(n²)
+ * suggestion sweep no longer lives in deriveWorld — every index
+ * (childrenByParent, groups, edges) rebuilds from the same node array, so
+ * no World value can carry a stale view of a dragged node.
  */
-export function applyDragFrame<TAttr>(
-  world: World<TAttr>,
-  id: string,
-  pos: [number, number],
-): World<TAttr> | null {
-  const n = node(world, id)
-  if (!n || !n.state.placed) return null
-  const delta: [number, number] = [pos[0] - n.position[0], pos[1] - n.position[1]]
-  if (delta[0] === 0 && delta[1] === 0) return null
-  const movable = movableSubtree(world, id)
-  const patched = world.nodes.map((m) => {
-    if (m.id === id) return { ...m, position: pos }
-    if (movable.has(m.id)) {
-      return {
-        ...m,
-        position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
-      }
-    }
-    return m
-  })
-  return {
-    ...world,
-    nodes: patched,
-    nodeById: new Map(patched.map((m) => [m.id, m])),
-  }
-}
-
 export function applyCommand<TAttr>(
   world: World<TAttr>,
   cmd: Command<TAttr>,
@@ -219,32 +196,37 @@ export function applyCommand<TAttr>(
 
     case 'move': {
       const n = node(world, cmd.id)
-      if (!n || n.state.locked) return { ok: false, error: 'locked-node' }
-      if (!n.state.placed) {
-        // First move detaches the node from its orbit/cluster — full re-derive.
-        const delta: [number, number] = [cmd.to[0] - n.position[0], cmd.to[1] - n.position[1]]
-        if (delta[0] === 0 && delta[1] === 0) return { ok: true }
-        const movable = movableSubtree(world, cmd.id)
-        return {
-          ok: true,
-          world: derive(
-            world.nodes.map((m) => {
-              if (m.id === cmd.id) {
-                return { ...m, position: cmd.to, state: { ...m.state, placed: true } }
+      if (!n) return { ok: false, error: 'missing' }
+      if (n.state.locked) return { ok: false, error: 'locked-node' }
+      // First move detaches the node from its orbit/cluster (`placed: true`);
+      // later moves (the drag fast path) are pure position updates. Both
+      // re-derive — derive is cheap now that suggestions live outside it, and
+      // a full derive keeps every index consistent with nodeById.
+      const delta: [number, number] = [cmd.to[0] - n.position[0], cmd.to[1] - n.position[1]]
+      if (delta[0] === 0 && delta[1] === 0) return { ok: true }
+      const firstDetach = !n.state.placed
+      const movable = movableSubtree(world, cmd.id)
+      return {
+        ok: true,
+        world: derive(
+          world.nodes.map((m) => {
+            if (m.id === cmd.id) {
+              return {
+                ...m,
+                position: cmd.to,
+                state: firstDetach ? { ...m.state, placed: true } : m.state,
               }
-              if (movable.has(m.id)) {
-                return {
-                  ...m,
-                  position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
-                }
+            }
+            if (movable.has(m.id)) {
+              return {
+                ...m,
+                position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
               }
-              return m
-            }),
-          ),
-        }
+            }
+            return m
+          }),
+        ),
       }
-      const framed = applyDragFrame(world, cmd.id, cmd.to)
-      return framed ? { ok: true, world: framed } : { ok: true }
     }
 
     case 'reparent': {
