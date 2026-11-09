@@ -11,7 +11,7 @@ export type { LayoutConfig, DeepPartial } from './config'
 export { layoutConfig, mergeConfig } from './config'
 export { hsla } from './colors'
 export type { CavinEdge, WorldEdge } from './edges'
-export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
+export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges, validateEdgeRecords } from './edges'
 export {
   groupPathKey,
   layoutNodes,
@@ -35,7 +35,7 @@ export {
 export type { LodLevels, RoomMorph, VisibleEntry } from './lod'
 export type { Command, MutationNotice, MutationResult } from './commands'
 export { applyCommand, applyDragFrame } from './commands'
-export type { CavinStorage } from './storage'
+export type { CavinStorage, WorldSnapshot } from './storage'
 export { createMemoryCavinStorage, validateRecords } from './storage'
 export {
   labelOf,

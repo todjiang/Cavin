@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { CavinEdge } from './edges'
+import { suggestEdges } from './edges'
 import type { World } from './types'
 import { family, makeNode, testAdapter } from './test-helpers'
 import type { TestAttrs } from './test-helpers'
@@ -16,6 +18,21 @@ import {
  * orphan promotion, child re-anchoring, lock shielding, cycle-safe
  * re-parenting, and promote-to-root. No DOM, no store, no React.
  */
+
+/** Call-site suggestion list, the way the world-store owns it: suggestions
+    are computed by the caller and handed to deriveWorld. */
+const suggestedOf = (nodes: ReturnType<typeof family>): CavinEdge[] =>
+  suggestEdges(
+    nodes,
+    (n) => n.groupPath[0] ?? '',
+    (n) => testAdapter.layoutVectorOf?.(n),
+  )
+
+const deriveWithSuggestions = (
+  nodes: ReturnType<typeof family> = family(),
+  confirmed: CavinEdge[] = [],
+): World<TestAttrs> =>
+  deriveWorld(nodes, testAdapter, undefined, confirmed, undefined, suggestedOf(nodes))
 
 describe('deriveWorld', () => {
   it('promotes children with a missing parent to roots', () => {
@@ -55,7 +72,7 @@ describe('deriveWorld edges', () => {
   // family(): a, b, c in group ML; d in group Design — every node shares the
   // same unit embedding, so all three ML↔Design pairs suggest at sim 1.
   it('derives suggested cross-domain edges from layout vectors', () => {
-    const world = deriveWorld(family(), testAdapter)
+    const world = deriveWithSuggestions()
     expect(world.edges).toHaveLength(3)
     expect(world.edges.every((e) => e.kind === 'suggested')).toBe(true)
     expect(world.edges.every((e) => e.id.startsWith('sugg:'))).toBe(true)
@@ -68,7 +85,7 @@ describe('deriveWorld edges', () => {
       { id: 'mine', from: 'c', to: 'd', createdAt: 1 },
       { id: 'dead', from: 'a', to: 'ghost', createdAt: 1 },
     ]
-    const world = deriveWorld(family(), testAdapter, undefined, confirmed)
+    const world = deriveWithSuggestions(family(), confirmed)
     expect(world.edges).toHaveLength(3)
     expect(world.edges.find((e) => e.id === 'mine')!.kind).toBe('confirmed')
     expect(world.edges.some((e) => e.id === 'dead')).toBe(false)
@@ -82,7 +99,7 @@ describe('deriveWorld edges', () => {
 
   it('ranks nodes by connection degree (importance)', () => {
     const confirmed = [{ id: 'mine', from: 'c', to: 'd', createdAt: 1 }]
-    const world = deriveWorld(family(), testAdapter, undefined, confirmed)
+    const world = deriveWithSuggestions(family(), confirmed)
     // d touches sugg a–d, sugg b–d and confirmed c–d; each ML node touches one.
     expect(world.degreeById.get('d')).toBe(3)
     expect(world.degreeById.get('a')).toBe(1)
@@ -104,8 +121,7 @@ describe('focusForSelection', () => {
     const world = deriveWorld(family(), testAdapter, undefined, confirmed)
     expect(focusForSelection(world, null)).toBeNull()
     expect(focusForSelection(world, 'ghost')).toBeNull()
-    // b has only a suggested edge — no focus mode.
-    expect(focusForSelection(world, 'b')).toBeNull()
+    expect(focusForSelection(world, 'b')).toBeNull() // b has no confirmed edges — no focus mode
   })
 
   it('contains the confirmed neighbors plus tree context', () => {

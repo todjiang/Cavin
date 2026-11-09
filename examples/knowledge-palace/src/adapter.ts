@@ -1,4 +1,5 @@
-import type { CavinEdge, CavinNode, SchemaAdapter } from '@cavin/core'
+import type { CavinNode, SchemaAdapter, WorldSnapshot } from '@cavin/core'
+import { validateEdgeRecords } from '@cavin/core'
 
 /**
  * The knowledge-palace demo's data plug — the reference implementation of
@@ -149,11 +150,19 @@ export const PALACE_STORAGE_KEY = 'cavin:knowledge-palace:v4'
 /** Pre-framework localStorage payload (flat nodes + edges + dataset). */
 export const LEGACY_STORAGE_KEY = 'cavin-world-v3'
 
-/** Confirmed edges out of the legacy v3 payload ({nodes, edges, dataset}). */
-export function migrateV3Edges(raw: unknown): CavinEdge[] | null {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    const edges = (raw as { edges?: unknown }).edges
-    if (Array.isArray(edges)) return edges as CavinEdge[]
+/** The v3 → v4 persistence migration as one pure function: the legacy
+    `{ nodes, edges, dataset }` payload decoded into the current snapshot
+    shape (nodes through the adapter, which accepts the v3 flat record;
+    edges structurally filtered). Passed to createLocalStorageCavinStorage's
+    `decodeLegacy` — no factory patching at the call site. */
+export function migrateV3Payload(raw: unknown): WorldSnapshot<KnowledgeAttrs> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const rec = raw as { nodes?: unknown; edges?: unknown }
+  if (!Array.isArray(rec.nodes)) return null
+  const nodes: CavinNode<KnowledgeAttrs>[] = []
+  for (const record of rec.nodes) {
+    const n = knowledgeAdapter.validate(record)
+    if (n) nodes.push(n)
   }
-  return null
+  return { nodes, confirmedEdges: validateEdgeRecords(rec.edges) }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CavinEdge, CavinNode } from '@cavin/core'
-import { deriveWorld, labelOf, runAdapterConformance } from '@cavin/core'
-import { knowledgeAdapter, migrateV3Edges } from './adapter'
+import { deriveWorld, labelOf, runAdapterConformance, suggestEdges } from '@cavin/core'
+import { knowledgeAdapter, migrateV3Payload } from './adapter'
 import { seedPalaceNodes } from './data'
 
 /**
@@ -67,7 +67,13 @@ describe('memory-palace seed invariants', () => {
   })
 
   it('suggests cross-domain edges, and no connection row renders untitled or missing', () => {
-    const world = deriveWorld(seed, knowledgeAdapter)
+    // Suggestions are the call site's job — compute and hand them to derive.
+    const suggested = suggestEdges(
+      seed,
+      (n) => n.groupPath[0] ?? '',
+      (n) => knowledgeAdapter.layoutVectorOf?.(n),
+    )
+    const world = deriveWorld(seed, knowledgeAdapter, undefined, [], undefined, suggested)
     expect(world.edges.length).toBeGreaterThan(0)
     for (const n of world.nodes) {
       for (const e of world.edgesByNode.get(n.id) ?? []) {
@@ -87,21 +93,36 @@ describe('memory-palace seed invariants', () => {
   })
 })
 
-describe('migrateV3Edges', () => {
-  it('pulls the confirmed-edge list out of the legacy payload', () => {
-    const legacy = { nodes: [], edges: [{ id: 'e1', from: 'a', to: 'b', createdAt: 0 }] }
-    expect(migrateV3Edges(legacy)).toEqual([{ id: 'e1', from: 'a', to: 'b', createdAt: 0 }])
-    expect(migrateV3Edges([{}] as unknown as CavinEdge[])).toBeNull()
-    expect(migrateV3Edges(null)).toBeNull()
+describe('migrateV3Payload', () => {
+  it('decodes the legacy { nodes, edges } payload into a snapshot', () => {
+    const legacy = {
+      nodes: [
+        {
+          id: 'wing-0-room-0-drawer-0',
+          wingName: 'Machine Learning',
+          roomName: 'Optimizers',
+          title: 'Old note',
+          position: [10, 20],
+        },
+      ],
+      edges: [{ id: 'e1', from: 'a', to: 'b', createdAt: 0 }, { bad: true }],
+    }
+    const snap = migrateV3Payload(legacy)!
+    expect(snap.nodes).toHaveLength(1)
+    expect(snap.nodes[0].groupPath).toEqual(['Machine Learning', 'Optimizers'])
+    expect(snap.confirmedEdges).toEqual([{ id: 'e1', from: 'a', to: 'b', createdAt: 0 }])
+    expect(migrateV3Payload([{}] as unknown as CavinEdge[])).toBeNull()
+    expect(migrateV3Payload(null)).toBeNull()
+    expect(migrateV3Payload({})).toBeNull()
   })
 
-  it('keeps CavinEdge ids intact when confirmed edges ride the legacy payload', () => {
+  it('migrated confirmed edges land in the world as confirmed', () => {
     const legacy = {
       nodes: [],
       edges: [{ id: 'sugg:a|b', from: 'a', to: 'b', createdAt: 0 }],
     }
-    const edges = migrateV3Edges(legacy) as CavinEdge[]
-    const world = deriveWorld(seed.slice(0, 2), knowledgeAdapter, undefined, edges)
+    const snap = migrateV3Payload(legacy)!
+    const world = deriveWorld(seed.slice(0, 2), knowledgeAdapter, undefined, snap.confirmedEdges)
     expect(world.edges.some((e) => e.id === 'sugg:a|b' && e.kind === 'confirmed')).toBe(false) // ids don't match this seed
   })
 })

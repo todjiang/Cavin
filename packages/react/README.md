@@ -49,12 +49,13 @@ canvases coexist on one page (pass different storage keys).
   `Toast`, `ErrorBoundary`.
 - **Toast copy** — the core returns notice/error *kinds*; this package maps
   them to strings interpolated with `adapter.noun`.
-- **`createLocalStorageCavinStorage(key, adapter, { fallbackKeys })`** — the
-  doc's localStorage persistence, validated through `adapter.validate` per
-  record. `fallbackKeys` is the migration seam: legacy records are decoded by
-  the same adapter and the next save writes only the new key. The core's
-  `CavinStorage` carries nodes only; confirmed edges persist via
-  `createLocalStorageEdges(key)` (or a custom `edgesStore`).
+- **`createLocalStorageCavinStorage(key, adapter, { fallbackKeys, decodeLegacy })`** —
+  snapshot persistence: the whole editable state (`{ nodes, confirmedEdges }`)
+  under one key, validated through `adapter.validate` per record, with absent
+  and empty distinct (an emptied world reloads empty, not as the seed).
+  `fallbackKeys` + `decodeLegacy` are the migration seam: a legacy payload is
+  decoded by the host's `(raw) → snapshot` function and the next save writes
+  only the new key.
 
 Nothing here special-cases any schema — `examples/flat-tasks` mounts the same
 component against a 20-line adapter with zero grouping levels.

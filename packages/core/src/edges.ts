@@ -29,9 +29,25 @@ export interface WorldEdge extends CavinEdge {
 }
 
 /** Order-independent pair key — suggested and confirmed edges for the same
-    pair are the same connection. */
+    pair are the same connection. Sorted and joined with a unit separator so
+    distinct pairs can never collide (`edgePairKey('ab','c')` ≠
+    `edgePairKey('a','bc')`). */
+const PAIR_SEP = '\u001F' // unit separator — ids are text, not control chars
 export function edgePairKey(a: string, b: string): string {
-  return a < b ? `${a}${b}` : `${b}${a}`
+  return a < b ? `${a}${PAIR_SEP}${b}` : `${b}${PAIR_SEP}${a}`
+}
+
+/** Structural check for persisted edge records (never throws): keeps only
+    objects carrying string id/from/to, drops the rest. */
+export function validateEdgeRecords(records: unknown): CavinEdge[] {
+  if (!Array.isArray(records)) return []
+  return records.filter(
+    (e): e is CavinEdge =>
+      !!e &&
+      typeof (e as CavinEdge).id === 'string' &&
+      typeof (e as CavinEdge).from === 'string' &&
+      typeof (e as CavinEdge).to === 'string',
+  )
 }
 
 interface SuggestConfig {

@@ -22,6 +22,7 @@ import {
   layoutConfig,
   mergeConfig,
 } from '@cavin/core'
+import { createSuggestionCache } from './suggestions'
 
 /**
  * The world store factory — one store per mounted canvas (never a module
@@ -29,6 +30,12 @@ import {
  * is a thin wrapper over `applyCommand`: the mutation semantics live in the
  * core, and this layer only maps results to toasts, selection requests, and
  * debounced persistence.
+ *
+ * Persistence is one snapshot (`{ nodes, confirmedEdges }`) behind one
+ * `CavinStorage`. The confirmed-edge list is not stored separately: it is
+ * recovered from `world.edges` at the persistence boundary, and every
+ * command re-derives with the post-command confirmed list, so the renderable
+ * world is always the source of truth.
  */
 
 export interface ToastMsg {
@@ -36,21 +43,12 @@ export interface ToastMsg {
   text: string
 }
 
-export interface EdgesStore {
-  load(): CavinEdge[] | null
-  save(edges: CavinEdge[]): boolean
-  clear(): void
-}
-
 export interface WorldStoreOptions<TAttr> {
   adapter: SchemaAdapter<TAttr>
   /** Deep-merged over the core defaults. */
   config?: DeepPartial<LayoutConfig>
-  /** Node persistence. Omit for in-memory worlds. */
+  /** Snapshot persistence ({ nodes, confirmedEdges }). Omit for in-memory worlds. */
   storage?: CavinStorage<TAttr>
-  /** Confirmed-edge persistence; defaults to none (the core's CavinStorage
-      carries nodes only). */
-  edgesStore?: EdgesStore
   /** The machine draft this canvas edits (first boot, and demo resets). */
   initialNodes?: CavinNode<TAttr>[]
   initialEdges?: CavinEdge[]
@@ -60,9 +58,6 @@ export interface WorldState<TAttr = unknown> {
   adapter: SchemaAdapter<TAttr>
   config: LayoutConfig
   world: World<TAttr>
-  /** Human-confirmed cross-domain connections (persisted). The renderable
-      edge list — confirmed + machine-suggested — lives on `world.edges`. */
-  edges: CavinEdge[]
   /** Node currently open in edit mode in the DetailPanel (must equal selectedId). */
   editingId: string | null
   toasts: ToastMsg[]
@@ -158,42 +153,52 @@ function errorText(noun: string, error: TreeMutationError): string | null {
   }
 }
 
+const confirmedOf = <TAttr>(world: World<TAttr>): CavinEdge[] =>
+  world.edges.filter((e) => e.kind === 'confirmed')
+
 export type WorldStore<TAttr = unknown> = UseBoundStore<StoreApi<WorldState<TAttr>>>
 
 export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): WorldStore<TAttr> {
   const adapter = options.adapter
   const config = mergeConfig(layoutConfig, options.config ?? ({} as DeepPartial<LayoutConfig>))
   const storage = options.storage ?? createMemoryCavinStorage<TAttr>()
-  const edgesStore = options.edgesStore ?? null
   const noun = adapter.noun
   // Per-instance toast id counter (was module state — two stores on one page
   // shared it).
   let toastSeq = 0
+  // Call-site owner of the machine-suggestion list (recomputes only when the
+  // inputs suggestEdges reads actually change). `appliedSuggested` tracks
+  // which cache array the current world was derived with — identity-equal
+  // means no suggestion input changed, so no re-derive is needed.
+  const suggestions = createSuggestionCache<TAttr>(adapter)
+  let appliedSuggested: CavinEdge[] = []
 
-  /** Boot: restore the persisted world if present, else the initial draft. */
-  function boot(): { world: World<TAttr>; edges: CavinEdge[] } {
+  /** Boot: restore the persisted snapshot if present, else the initial draft. */
+  function boot(): World<TAttr> {
     try {
-      const storedNodes = storage.load()
-      if (storedNodes && storedNodes.length > 0) {
-        const storedEdges = edgesStore?.load() ?? options.initialEdges ?? []
-        return {
-          world: deriveWorld(storedNodes, adapter, undefined, storedEdges, config),
-          edges: storedEdges,
-        }
+      const stored = storage.load()
+      if (stored) {
+        const suggested = suggestions.suggest(stored.nodes)
+        appliedSuggested = suggested
+        return deriveWorld(
+          stored.nodes,
+          adapter,
+          undefined,
+          stored.confirmedEdges,
+          config,
+          suggested,
+        )
       }
     } catch {
       // Corrupt shape — fall through to the initial draft.
     }
-    const edges = options.initialEdges ?? []
-    return {
-      world: deriveWorld(options.initialNodes ?? [], adapter, undefined, edges, config),
-      edges,
-    }
+    const nodes = options.initialNodes ?? []
+    const suggested = suggestions.suggest(nodes)
+    appliedSuggested = suggested
+    return deriveWorld(nodes, adapter, undefined, options.initialEdges ?? [], config, suggested)
   }
 
   const store = create<WorldState<TAttr>>()((set, get) => {
-    const initial = boot()
-
     /** Dispatch through the core command funnel; surface notices/toasts. */
     const dispatch = (cmd: Parameters<typeof applyCommand<TAttr>>[1]) => {
       const res = applyCommand(get().world, cmd, adapter, config)
@@ -202,8 +207,19 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         if (text) get().toast(text)
         return res
       }
-      if (res.world) set({ world: res.world })
-      if (res.edges !== undefined) set({ edges: res.edges })
+      if (res.world) {
+        let world = res.world
+        // Suggestions are the call site's job: the cache returns the SAME
+        // array identity when the inputs (top-level group, layout vectors)
+        // are unchanged — only then is the world's suggestion list still
+        // correct and a re-derive skipped.
+        const suggested = suggestions.suggest(world.nodes)
+        if (suggested !== appliedSuggested) {
+          appliedSuggested = suggested
+          world = deriveWorld(world.nodes, adapter, world, confirmedOf(world), config, suggested)
+        }
+        set({ world })
+      }
       if (res.notice) {
         if (res.notice.kind === 'reparented') {
           const parent = get().world.nodeById.get(res.notice.targetId ?? '')
@@ -233,8 +249,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     return {
       adapter,
       config,
-      world: initial.world,
-      edges: initial.edges,
+      world: boot(),
       editingId: null,
       toasts: [],
       requestedSelection: null,
@@ -310,11 +325,11 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
 
       resetDemo: () => {
         storage.clear()
-        edgesStore?.clear()
-        const edges = options.initialEdges ?? []
+        const nodes = options.initialNodes ?? []
+        const suggested = suggestions.suggest(nodes)
+        appliedSuggested = suggested
         set({
-          world: deriveWorld(options.initialNodes ?? [], adapter, undefined, edges, config),
-          edges,
+          world: deriveWorld(nodes, adapter, undefined, options.initialEdges ?? [], config, suggested),
           editingId: null,
         })
         get().toast('Demo data restored')
@@ -327,18 +342,20 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     }
   })
 
-  // Persist the node array + confirmed edges (debounced) whenever they change.
-  // A failed save surfaces as a one-shot toast so the user knows persistence
-  // stopped.
+  // Persist the whole snapshot (nodes + confirmed edges recovered from the
+  // renderable world) whenever the world changes. Debounced; a failed save
+  // surfaces as a one-shot toast so the user knows persistence stopped.
   let saveTimer: number | undefined
   let lastSaveWarned = false
   store.subscribe((s, prev) => {
-    if (s.world === prev.world && s.edges === prev.edges) return
+    if (s.world === prev.world) return
     window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      const okNodes = storage.save(store.getState().world.nodes)
-      const okEdges = edgesStore ? edgesStore.save(store.getState().edges) : true
-      const ok = okNodes && okEdges
+      const world = store.getState().world
+      const ok = storage.save({
+        nodes: world.nodes,
+        confirmedEdges: confirmedOf(world),
+      })
       if (!ok && !lastSaveWarned) {
         lastSaveWarned = true
         store.getState().toast('Storage full — changes won’t persist')

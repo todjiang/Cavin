@@ -9,7 +9,7 @@ import type {
   World,
 } from './types'
 import type { CavinEdge } from './edges'
-import { indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
+import { indexEdgesByNode, mergeEdges } from './edges'
 import { defaultHue, hsl, hueFromColor } from './colors'
 
 /** Separator for group-path keys — cannot appear in a path segment. */
@@ -194,6 +194,12 @@ export function layoutNodes<TAttr>(
  *   cluster's centroid/radius.
  * - Clusters with no members left disappear; one whose roots all went
  *   free-placed keeps its previous centroid.
+ *
+ * Suggestions are NOT computed here — `suggestEdges` is an O(n²) sweep whose
+ * inputs (top-level group, layout vectors) change far less often than the
+ * world derives. The CALL SITE owns the suggestion list and passes it in
+ * (recomputing only when those inputs change); derive only merges it with
+ * the confirmed list.
  */
 export function deriveWorld<TAttr>(
   rawNodes: CavinNode<TAttr>[],
@@ -201,6 +207,7 @@ export function deriveWorld<TAttr>(
   prev?: World<TAttr>,
   confirmedEdges: CavinEdge[] = [],
   config: LayoutConfig = layoutConfig,
+  suggested: CavinEdge[] = [],
 ): World<TAttr> {
   // Fresh copies — callers may pass stored objects, and the orphan-promotion
   // below mutates parentId. groupPath is authoritative on the node.
@@ -337,15 +344,10 @@ export function deriveWorld<TAttr>(
     .sort((a, b) => a.path.length - b.path.length)
     .map((a) => clusterByKey.get(a.key)!)
 
-  // Cross-domain connections: machine-suggested pairs are recomputed from
-  // layout vectors on every derive (domain = top-level group path); the
-  // persisted confirmed list shadows matching suggestions. Dangling edges
-  // (deleted endpoint) are dropped here — deletion is never blocked.
-  const suggested = suggestEdges(
-    nodes,
-    (n) => n.groupPath[0] ?? '',
-    (n) => adapter.layoutVectorOf?.(n),
-  )
+  // Cross-domain connections: the caller-owned suggestion list merged with
+  // the persisted confirmed list (which shadows matching suggestions).
+  // Dangling edges (deleted endpoint) are dropped here — deletion is never
+  // blocked.
   const edges = mergeEdges(confirmedEdges, suggested, new Set(nodeById.keys()))
   const edgesByNode = indexEdgesByNode(edges)
   const degreeById = new Map<string, number>()

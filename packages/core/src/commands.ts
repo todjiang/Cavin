@@ -67,8 +67,6 @@ export interface MutationResult<TAttr = unknown> {
   error?: TreeMutationError
   /** The derived world after the command. Absent only for silent no-ops. */
   world?: World<TAttr>
-  /** Updated confirmed-edge list — only when the command changed it. */
-  edges?: CavinEdge[]
   notice?: MutationNotice
   /** For add / addChild: the id of the created node (selection + editor). */
   createdId?: string
@@ -146,12 +144,18 @@ export function applyCommand<TAttr>(
   adapter: SchemaAdapter<TAttr>,
   config: LayoutConfig = layoutConfig,
   rand: () => number = Math.random,
+  /** Caller-owned machine suggestions for the next world. Defaults to the
+      current world's suggestion list — right for every command whose inputs
+      suggestEdges reads (top-level group, layout vectors) did not change.
+      The call site recomputes (via suggestEdges) only when they might have. */
+  suggested?: CavinEdge[],
 ): MutationResult<TAttr> {
-  // Re-derive with the world's own confirmed edges (world.edges also carries
-  // suggestions, which deriveWorld recomputes).
+  // Re-derive with the world's own edge lists (world.edges also carries the
+  // merged renderable view; the two sources split back out here).
   const confirmed = world.edges.filter((e) => e.kind === 'confirmed')
+  const suggestedNext = suggested ?? world.edges.filter((e) => e.kind === 'suggested')
   const derive = (nodes: CavinNode<TAttr>[]): World<TAttr> =>
-    deriveWorld(nodes, adapter, world, confirmed, config)
+    deriveWorld(nodes, adapter, world, confirmed, config, suggestedNext)
 
   switch (cmd.type) {
     case 'add': {
@@ -300,7 +304,7 @@ export function applyCommand<TAttr>(
       if (n.state.locked) return { ok: false, error: 'locked-node' }
       const doomed = deletableSubtree(world, cmd.id)
       // Connections are weak references: prune confirmed edges touching the
-      // deleted subtree (suggested ones are re-derived anyway).
+      // deleted subtree (suggested ones belong to the caller's list).
       const edges = confirmed.filter((e) => !doomed.has(e.from) && !doomed.has(e.to))
       return {
         ok: true,
@@ -310,8 +314,8 @@ export function applyCommand<TAttr>(
           world,
           edges,
           config,
+          suggestedNext,
         ),
-        edges: edges.length === confirmed.length ? undefined : edges,
         notice: { kind: 'deleted', count: doomed.size },
       }
     }
@@ -328,8 +332,7 @@ export function applyCommand<TAttr>(
       ]
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config),
-        edges,
+        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
         notice: { kind: 'edge-confirmed' },
       }
     }
@@ -339,8 +342,7 @@ export function applyCommand<TAttr>(
       if (edges.length === confirmed.length) return { ok: true }
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config),
-        edges,
+        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
         notice: { kind: 'edge-removed' },
       }
     }

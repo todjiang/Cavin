@@ -21,6 +21,17 @@ const cfg = { simThreshold: 0.5, maxPerNode: 1 }
 
 const pairOf = (edges: CavinEdge[]) => edges.map((e) => edgePairKey(e.from, e.to))
 
+describe('edgePairKey', () => {
+  it('is order-independent', () => {
+    expect(edgePairKey('a', 'b')).toBe(edgePairKey('b', 'a'))
+  })
+
+  it('never collides on concatenation boundaries', () => {
+    // The old keyless concat collided here: 'ab'+'c' === 'a'+'bc'.
+    expect(edgePairKey('ab', 'c')).not.toBe(edgePairKey('a', 'bc'))
+  })
+})
+
 describe('suggestEdges', () => {
   it('never links nodes in the same domain, however similar', () => {
     const edges = suggestEdges([n('a', 'X', [1, 0]), n('b', 'X', [1, 0])], domainOf, vectorOf, cfg)

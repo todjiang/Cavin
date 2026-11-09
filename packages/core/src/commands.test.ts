@@ -110,7 +110,7 @@ describe('applyCommand', () => {
     expect(confirmed(world)).toHaveLength(1)
 
     const res = applyCommand(world, { type: 'remove', id: 'a' }, testAdapter)
-    expect(res.edges).toEqual([]) // the confirmed edge died with a
+    expect(confirmed(res.world!)).toEqual([]) // the confirmed edge died with a
     expect(res.world!.edges.every((e) => e.id !== 'mine')).toBe(true)
   })
 

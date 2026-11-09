@@ -25,16 +25,14 @@ import './styles.css'
  * The embeddable canvas. One instance = one adapter + its own stores and
  * DOM world; mount two on a page and they stay independent.
  *
- * Boot rule: storage wins if it holds nodes, else `initialNodes`, else an
- * empty world.
+ * Boot rule: the persisted snapshot wins when present (an emptied world
+ * reloads empty), else `initialNodes`/`initialEdges`, else an empty world.
  */
 export interface CavinCanvasProps<TAttr> {
   /** Required — the data plug. */
   adapter: SchemaAdapter<TAttr>
-  /** Node persistence; omit for an in-memory canvas. */
+  /** Snapshot persistence ({ nodes, confirmedEdges }); omit for in-memory. */
   storage?: CavinStorage<TAttr>
-  /** Confirmed-edge persistence (the core's CavinStorage is node-only). */
-  edgesStore?: { load(): CavinEdge[] | null; save(edges: CavinEdge[]): boolean; clear(): void }
   /** The machine draft this canvas edits (first boot and resets). */
   initialNodes?: CavinNode<TAttr>[]
   initialEdges?: CavinEdge[]
@@ -59,7 +57,6 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
       adapter: props.adapter,
       config: props.config,
       storage: props.storage,
-      edgesStore: props.edgesStore,
       initialNodes: props.initialNodes,
       initialEdges: props.initialEdges,
     })
