@@ -110,10 +110,11 @@ describe('createSession', () => {
     const watchFn = {
       subscribe: (fn: (s: { world: World<Attrs> }, prev: { world: World<Attrs> }) => void) => {
         subscribed = fn
+        return () => {}
       },
     }
     const toast = vi.fn()
-    session.persistOnChange(watchFn, toast)
+    const dispose = session.persistOnChange(watchFn, toast)
 
     subscribed({ world: changed }, { world })
     subscribed({ world: changed }, { world: changed }) // no change → ignored
@@ -122,6 +123,7 @@ describe('createSession', () => {
     expect(save).toHaveBeenCalledTimes(1)
     expect(save).toHaveBeenCalledWith({ nodes: changed.nodes, confirmedEdges: [] })
     expect(toast).not.toHaveBeenCalled()
+    dispose() // returns a disposer; calling it must not throw
   })
 
   it('toasts once when a save fails, and recovers after a success', () => {
@@ -132,7 +134,7 @@ describe('createSession', () => {
 
     let subscribed: (s: { world: World<Attrs> }, prev: { world: World<Attrs> }) => void = () => {}
     const toast = vi.fn()
-    session.persistOnChange({ subscribe: (fn) => (subscribed = fn) }, toast)
+    session.persistOnChange({ subscribe: (fn) => ((subscribed = fn), () => {}) }, toast)
 
     const world = session.boot()
     const changed: World<Attrs> = { ...world, nodes: [...world.nodes] }

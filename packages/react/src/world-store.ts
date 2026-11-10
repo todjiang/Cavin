@@ -80,6 +80,8 @@ export interface WorldState<TAttr = unknown> {
   updateNode: (id: string, patch: Record<string, unknown>) => void
   /** Move + free-place a node; the movable subtree follows (locked branches stay). */
   moveNode: (id: string, pos: [number, number]) => void
+  /** Discard a buffered drag move and cancel the pending frame (pointercancel). */
+  cancelDrag: () => void
   /** Re-parent a node under another (drag-drop or panel picker); the subtree
       crosses into the new parent's group. Refuses cycles and locked targets.
       Dropping a free-placed child back onto its current parent re-joins the
@@ -101,6 +103,8 @@ export interface WorldState<TAttr = unknown> {
   unlinkEdge: (id: string) => void
   /** Wipe persistence and rebuild from `initialNodes`. */
   resetDemo: () => void
+  /** Tear down every session subscription and the pending editor frame. */
+  dispose: () => void
 
   setEditing: (id: string | null) => void
   toast: (text: string) => void
@@ -127,6 +131,9 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     initialEdges: options.initialEdges,
   })
 
+  // Session subscriptions, collected so dispose() can tear everything down.
+  const disposers: (() => void)[] = []
+
   const store = create<WorldState<TAttr>>()((set, get) => {
     // Frame-coalesced drag: the editor buffers pointermove positions and
     // flushes ONE move command per frame — drags travel through
@@ -139,7 +146,13 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
 
     /** Dispatch through the core command funnel; surface notices/toasts. */
     const dispatch = (cmd: Parameters<typeof applyCommand<TAttr>>[1]) => {
-      const res = applyCommand(get().world, cmd, adapter, config)
+      // Drag transaction: a structural command must never be reordered after
+      // a buffered move (a stale flush would re-free-place a node that just
+      // re-joined its orbit). Settle the buffer first — flush clears pending
+      // before dispatching the move, and the move path skips this, so there
+      // is no re-entrancy loop.
+      if (cmd.type !== 'move') editor.flush()
+      const res = applyCommand(get().world, cmd, adapter, config, undefined, session.suggest)
       options.onMutation?.(cmd, res)
       if (!res.ok) {
         const text = res.error ? errorText(adapter.noun, res.error) : null
@@ -147,9 +160,9 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         return res
       }
       if (res.world) {
-        // Suggestions are the session's job: withFreshSuggestions re-derives
-        // only when the suggestion cache says the inputs changed.
-        set({ world: session.withFreshSuggestions(res.world) })
+        // Suggestions travel with the command (see session.suggest) — the
+        // world the store commits IS the world onMutation observed.
+        set({ world: res.world })
       }
       if (res.notice) {
         const text = noticeToast(adapter, get().world, res.notice)
@@ -205,6 +218,10 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         editor.bufferMove(id, pos)
       },
 
+      cancelDrag: () => {
+        editor.cancel()
+      },
+
       reparentNode: (id, newParentId) => {
         dispatch({ type: 'reparent', id, newParentId })
       },
@@ -248,6 +265,12 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         get().toast('Demo data restored')
       },
 
+      dispose: () => {
+        for (const d of disposers) d()
+        disposers.length = 0
+        editor.cancel()
+      },
+
       setEditing: (id) => set({ editingId: id }),
 
       toast: (text) => set((s) => ({ toasts: [...s.toasts, { id: ++toastSeq, text }] })),
@@ -255,8 +278,12 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     }
   })
 
-  // Debounced snapshot persistence — owned by the session module.
-  session.persistOnChange(store, (text) => store.getState().toast(text))
+  // Session subscriptions — collected so the store's dispose() tears down
+  // persistence AND external sync together.
+  disposers.push(
+    session.persistOnChange(store, (text) => store.getState().toast(text)),
+    session.syncExternal((world) => store.setState({ world })),
+  )
 
   return store
 }

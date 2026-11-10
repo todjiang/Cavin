@@ -113,12 +113,10 @@ describe('deriveScene', () => {
       selectedId: 'sel',
       margin: 8,
     }
-    const dispX = (focusBlend: number) => {
-      const s = deriveScene({ ...params, focusBlend })
-      const base = s.morphs.get('rel')!.pos
-      const t = s.ringTargets.get('rel')!
-      return base[0] + (t[0] - base[0]) * s.focusK
-    }
+    // The blend now lives INSIDE the scene: entry.dpos and displayOf carry
+    // the interpolated position — no caller re-derives it.
+    const dispX = (focusBlend: number) =>
+      deriveScene({ ...params, focusBlend }).entries.find((e) => e.node.id === 'rel')!.dpos[0]
     // Blend 0 → home position; blend 1 → exactly the ring target; the
     // midpoint is eased between them (smoothstep).
     expect(dispX(0)).toBeCloseTo(1000)
@@ -127,10 +125,15 @@ describe('deriveScene', () => {
     expect(dispX(1)).toBeCloseTo(targetX)
     expect(dispX(0.5)).toBeGreaterThan(Math.min(1000, targetX))
     expect(dispX(0.5)).toBeLessThan(Math.max(1000, targetX))
+    // displayOf agrees with entry.dpos for entries…
+    expect(s1.displayOf('rel')).toEqual(s1.entries.find((e) => e.node.id === 'rel')!.dpos)
+    // …and lazily covers non-entries through the shared morph cache.
+    expect(s1.displayOf('sel')).toEqual(s1.entries.find((e) => e.node.id === 'sel')!.dpos)
     // Without a selection the blend is forced to 0 even when the raw input
-    // says 1 — no focus, no constellation.
+    // says 1 — no focus, no constellation; dpos equals the morph position.
     const noFocus = deriveScene({ ...params, selectedId: null, focusBlend: 1 })
     expect(noFocus.focusK).toBe(0)
+    expect(noFocus.displayOf('rel')).toEqual(noFocus.morphs.get('rel')!.pos)
   })
 
   it('respects the cull margin', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createMemoryCavinStorage, validateRecords } from './storage'
+import { createMemoryCavinStorage, decodeSnapshot, validateRecords } from './storage'
 import { validateEdgeRecords } from './edges'
 import { testAdapter } from './test-helpers'
 
@@ -77,6 +77,70 @@ describe('validateRecords', () => {
     const result = validateRecords([{ id: 'g', position: [0, 0] }, { id: 'bad' }], decodingAdapter)
     expect(result!.nodes).toHaveLength(1)
     expect(result!.dropped).toBe(1)
+  })
+})
+
+describe('decodeSnapshot', () => {
+  /** testAdapter.validate always returns null — use a decoding adapter. */
+  const decodingAdapter = {
+    ...testAdapter,
+    validate: (raw: unknown) => {
+      const r = raw as { id?: unknown; position?: unknown }
+      if (typeof r?.id === 'string' && Array.isArray(r.position)) {
+        return {
+          id: r.id,
+          position: [0, 0] as [number, number],
+          groupPath: [],
+          attributes: { title: '', embedding: [] },
+          state: {},
+        }
+      }
+      return null
+    },
+  }
+  const node = (id: string) => ({ id, position: [0, 0] })
+
+  it('accepts the snapshot shape, a bare node array, and { nodes }', () => {
+    const full = decodeSnapshot(
+      { nodes: [node('a')], confirmedEdges: [{ id: 'e', from: 'a', to: 'b', createdAt: 0 }] },
+      decodingAdapter,
+    )
+    expect(full!.snapshot.nodes).toHaveLength(1)
+    expect(full!.snapshot.confirmedEdges).toHaveLength(1)
+    expect(full!.droppedNodes).toBe(0)
+
+    const bare = decodeSnapshot([node('a')], decodingAdapter)
+    expect(bare!.snapshot.nodes).toHaveLength(1)
+    expect(bare!.snapshot.confirmedEdges).toEqual([])
+
+    const nodesOnly = decodeSnapshot({ nodes: [node('a')] }, decodingAdapter)
+    expect(nodesOnly!.snapshot.nodes).toHaveLength(1)
+  })
+
+  it('maps the legacy { nodes, edges } alias onto confirmedEdges', () => {
+    const decoded = decodeSnapshot(
+      { nodes: [node('a')], edges: [{ id: 'e', from: 'a', to: 'b', createdAt: 0 }] },
+      decodingAdapter,
+    )
+    expect(decoded!.snapshot.confirmedEdges).toEqual([{ id: 'e', from: 'a', to: 'b', createdAt: 0 }])
+  })
+
+  it('treats { nodes: [] } as a valid empty snapshot, never null', () => {
+    const decoded = decodeSnapshot({ nodes: [], confirmedEdges: [] }, decodingAdapter)
+    expect(decoded!.snapshot).toEqual({ nodes: [], confirmedEdges: [] })
+    expect(decoded!.droppedNodes).toBe(0)
+  })
+
+  it('returns null for malformed payloads and reports partial drops', () => {
+    expect(decodeSnapshot(null, decodingAdapter)).toBeNull()
+    expect(decodeSnapshot('nope', decodingAdapter)).toBeNull()
+    expect(decodeSnapshot(42, decodingAdapter)).toBeNull()
+    expect(decodeSnapshot({ noNodes: true }, decodingAdapter)).toBeNull()
+    expect(decodeSnapshot({ nodes: 'nope' }, decodingAdapter)).toBeNull()
+
+    const partial = decodeSnapshot({ nodes: [node('a'), null, 42] }, decodingAdapter)
+    expect(partial!.snapshot.nodes).toHaveLength(1)
+    expect(partial!.droppedNodes).toBe(2)
   })
 })
 

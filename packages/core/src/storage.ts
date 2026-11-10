@@ -1,4 +1,5 @@
 import type { CavinEdge } from './edges'
+import { validateEdgeRecords } from './edges'
 import type { CavinNode } from './types'
 import type { SchemaAdapter } from './adapter'
 
@@ -78,4 +79,37 @@ export function validateRecords<TAttr>(
     }
   }
   return { nodes, dropped }
+}
+
+/**
+ * Decode one already-JSON-parsed payload into a WorldSnapshot — the single
+ * home for snapshot record-shape policy. Accepts the current snapshot shape
+ * (`{ nodes, confirmedEdges }`), a bare node array (the first v4 shape), and
+ * `{ nodes }`; the legacy `{ nodes, edges }` alias maps `edges` onto
+ * confirmedEdges. Returns null for anything else. `{ nodes: [] }` is a valid
+ * EMPTY snapshot — never null (absent vs empty is a documented contract).
+ * `droppedNodes` rides along so DOM adapters can warn; the core never prints.
+ */
+export function decodeSnapshot<TAttr>(
+  parsed: unknown,
+  adapter: SchemaAdapter<TAttr>,
+): { snapshot: WorldSnapshot<TAttr>; droppedNodes: number } | null {
+  let records: unknown
+  let edgesRaw: unknown
+  if (Array.isArray(parsed)) {
+    records = parsed
+  } else if (parsed && typeof parsed === 'object') {
+    const rec = parsed as { nodes?: unknown; confirmedEdges?: unknown; edges?: unknown }
+    if (!Array.isArray(rec.nodes)) return null
+    records = rec.nodes
+    edgesRaw = rec.confirmedEdges ?? rec.edges
+  } else {
+    return null
+  }
+  const result = validateRecords(records, adapter)
+  if (!result) return null
+  return {
+    snapshot: { nodes: result.nodes, confirmedEdges: validateEdgeRecords(edgesRaw) },
+    droppedNodes: result.dropped,
+  }
 }

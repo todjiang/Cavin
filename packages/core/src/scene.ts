@@ -22,9 +22,13 @@ export interface Viewport {
 export interface SceneEntry<TAttr = unknown> {
   node: CavinNode<TAttr>
   morph: RoomMorph
-  /** Screen-space dot position. */
+  /** Screen-space dot position (home — see dpos for the painted position). */
   sx: number
   sy: number
+  /** World-coord DISPLAY position: room-morph home blended toward the
+      selection-constellation ring slot by focusK. Identical to morph.pos
+      without a focus; the position painters and hit-tests should use. */
+  dpos: [number, number]
   /** True when the entry was pulled into the projection by the selection
       constellation even though it sits off-screen — painters must not
       cull these again, but may want to clamp or fade them. */
@@ -52,6 +56,10 @@ export interface Scene<TAttr = unknown> {
   ringTargets: Map<string, [number, number]>
   /** Project a world point to screen px with this scene's camera+viewport. */
   project: (x: number, y: number) => [number, number]
+  /** Display position for any node id — the same blend entry.dpos carries,
+      computed lazily through the shared per-frame morph cache for ids that
+      are not entries (e.g. an edge endpoint's parent). */
+  displayOf: (id: string) => [number, number]
 }
 
 export interface SceneParams<TAttr = unknown> {
@@ -101,6 +109,14 @@ export function deriveScene<TAttr = unknown>({
     }
   }
 
+  /** The one home→ring blend every painter and hit-test shares. */
+  const displayOf = (id: string): [number, number] => {
+    const base = (morphs.get(id) ?? roomMorph(world, world.nodeById.get(id)!, zoom, cam, zCards, morphs, config)).pos
+    const t = ringTargets.get(id)
+    if (!t || focusK === 0) return base
+    return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
+  }
+
   const entries: SceneEntry<TAttr>[] = visibleNodes(
     world,
     cam,
@@ -110,7 +126,10 @@ export function deriveScene<TAttr = unknown>({
     margin,
     morphs,
     config,
-  ).map((e) => ({ node: e.node as CavinNode<TAttr>, morph: e.morph, sx: e.sx, sy: e.sy }))
+  ).map((e) => {
+    const node = e.node as CavinNode<TAttr>
+    return { node, morph: e.morph, sx: e.sx, sy: e.sy, dpos: displayOf(node.id) }
+  })
 
   // Focus constellation members off-screen are still projected so the
   // layers can draw chips/edges traveling toward their ring slots.
@@ -122,9 +141,9 @@ export function deriveScene<TAttr = unknown>({
       if (!node) continue
       const morph = roomMorph(world, node, zoom, cam, zCards, morphs, config)
       const [sx, sy] = project(morph.pos[0], morph.pos[1])
-      entries.push({ node, morph, sx, sy, offscreen: true })
+      entries.push({ node, morph, sx, sy, dpos: displayOf(id), offscreen: true })
     }
   }
 
-  return { world, cam, viewport, morphs, entries, focus, focusK, ringTargets, project }
+  return { world, cam, viewport, morphs, entries, focus, focusK, ringTargets, project, displayOf }
 }

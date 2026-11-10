@@ -165,6 +165,10 @@ export interface LayoutConfig {
     innerRingPx: number
     /** Per-frame ease rate of the gather animation (0..1). */
     blendRate: number
+    /** Snap the blend to exactly 1 once within this epsilon of 1: the gather
+        terminates deterministically, the frame cache stabilizes, and paint
+        layers stop redrawing for the converging animation. */
+    blendEpsilon: number
   }
   importance: {
     /** Hub emphasis: dot radius scales up to × (1 + sizeBoost) and alpha up
@@ -283,6 +287,7 @@ export const layoutConfig: LayoutConfig = {
     ringPerNodePx: 64,
     innerRingPx: 92,
     blendRate: 0.16,
+    blendEpsilon: 0.001,
   },
   importance: {
     sizeBoost: 1.1,
