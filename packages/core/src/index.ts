@@ -32,8 +32,16 @@ export {
 export type { LodLevels, RoomMorph, VisibleEntry } from './lod'
 export type { Viewport, Scene, SceneEntry, SceneParams } from './scene'
 export { deriveScene } from './scene'
-export type { Command, MutationNotice, MutationResult } from './commands'
+export type { Command, MutationError, MutationNotice, MutationResult } from './commands'
 export { applyCommand } from './commands'
+export type {
+  OntologyClass,
+  OntologyRelation,
+  OntologySchema,
+  RelationValidationError,
+  RelationValidationResult,
+} from './ontology'
+export { ontologyRelation, validateRelation, worldToJsonLd } from './ontology'
 export type { CavinStorage, WorldSnapshot } from './storage'
 export { createMemoryCavinStorage, validateRecords } from './storage'
 export {

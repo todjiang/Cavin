@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { SchemaAdapter } from './adapter'
 import type { CavinEdge } from './edges'
 import { applyCommand } from './commands'
 import { deriveWorld } from './layout'
@@ -27,6 +28,23 @@ function snapshot(world: World<TestAttrs>): string {
 
 const confirmed = (world: World<TestAttrs>): CavinEdge[] =>
   world.edges.filter((e) => e.kind === 'confirmed')
+
+const semanticAdapter: SchemaAdapter<TestAttrs> = {
+  ...testAdapter,
+  ontology: {
+    context: { ex: 'https://example.test/ontology#' },
+    nodeBaseIri: 'https://example.test/instances/',
+    classes: [
+      { id: 'Person', iri: 'ex:Person', label: 'Person' },
+      { id: 'Ruler', iri: 'ex:Ruler', label: 'Ruler', parent: 'Person' },
+    ],
+    relations: [
+      { id: 'hasRetainer', iri: 'ex:hasRetainer', label: 'has retainer', domain: 'Ruler', range: 'Person' },
+      { id: 'mentorOf', iri: 'ex:mentorOf', label: 'mentor of', domain: 'Person', range: 'Person' },
+    ],
+  },
+  typeOf: (n) => (n.id === 'a' ? 'Ruler' : 'Person'),
+}
 
 describe('applyCommand', () => {
   it('never mutates the input world', () => {
@@ -112,6 +130,62 @@ describe('applyCommand', () => {
     const res = applyCommand(world, { type: 'remove', id: 'a' }, testAdapter)
     expect(confirmed(res.world!)).toEqual([]) // the confirmed edge died with a
     expect(res.world!.edges.every((e) => e.id !== 'mine')).toBe(true)
+  })
+
+  it('connect validates semantic endpoints and never duplicates a triple', () => {
+    const world = boot()
+    const created = applyCommand(
+      world,
+      { type: 'connect', from: 'a', to: 'd', predicate: 'hasRetainer' },
+      semanticAdapter,
+    )
+    expect(created.ok).toBe(true)
+    expect(confirmed(created.world!)).toHaveLength(1)
+    expect(confirmed(created.world!)[0]).toMatchObject({
+      from: 'a',
+      to: 'd',
+      predicate: 'hasRetainer',
+      label: 'has retainer',
+    })
+
+    const duplicate = applyCommand(
+      created.world!,
+      { type: 'connect', from: 'a', to: 'd', predicate: 'hasRetainer' },
+      semanticAdapter,
+    )
+    expect(duplicate).toEqual({ ok: true })
+
+    const before = confirmed(world)
+    const invalid = applyCommand(
+      world,
+      { type: 'connect', from: 'd', to: 'a', predicate: 'hasRetainer' },
+      semanticAdapter,
+    )
+    expect(invalid).toEqual({ ok: false, error: 'invalid-domain' })
+    expect(invalid.world).toBeUndefined()
+    expect(confirmed(world)).toEqual(before)
+  })
+
+  it('confirmEdge preserves predicates and shares semantic validation', () => {
+    const world = boot()
+    const typed: CavinEdge = {
+      id: 'typed',
+      from: 'a',
+      to: 'd',
+      createdAt: 1,
+      predicate: 'mentorOf',
+    }
+    const confirmedResult = applyCommand(world, { type: 'confirmEdge', edge: typed }, semanticAdapter)
+    expect(confirmed(confirmedResult.world!)).toEqual([
+      { ...typed, kind: 'confirmed' },
+    ])
+
+    const invalid = applyCommand(
+      world,
+      { type: 'confirmEdge', edge: { ...typed, predicate: 'ghost' } },
+      semanticAdapter,
+    )
+    expect(invalid).toEqual({ ok: false, error: 'unknown-predicate' })
   })
 
   it('setLocked sets locked and confirmed together (locking IS confirming)', () => {

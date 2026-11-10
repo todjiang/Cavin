@@ -3,6 +3,7 @@ import type { CavinNode, FieldDescriptor } from '@cavin/core'
 import { bodyOf, fieldValueOf, labelOf, subtree, tagsOf, timeFieldOf, timeOf } from '@cavin/core'
 import { useCavin } from '../context'
 import { buildPalette } from '../presentation'
+import { RelationEditor } from './RelationEditor'
 import { formatTimeValue, timeDomainOf } from './time'
 
 /**
@@ -358,9 +359,13 @@ export function DetailPanel() {
                   <button className="detail-ancestor-link" onClick={() => select(other.id)}>
                     {labelOf(adapter, other)}
                   </button>
-                  {edge.label && (
+                  {edge.predicate ? (
+                    <span className="parent-option-crumb" title={edge.predicate}>
+                      {edge.from === node.id ? 'outgoing' : 'incoming'} · {edge.label ?? edge.predicate}
+                    </span>
+                  ) : edge.label ? (
                     <span className="parent-option-crumb">{edge.label}</span>
-                  )}
+                  ) : null}
                   <span className="parent-option-crumb">
                     {other.groupPath.join(' / ')}
                   </span>
@@ -398,6 +403,8 @@ export function DetailPanel() {
               ))}
             </div>
           )}
+
+          {adapter.ontology && <RelationEditor node={node} />}
 
           <div className="detail-actions">
             <button

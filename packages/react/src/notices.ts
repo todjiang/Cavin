@@ -51,6 +51,16 @@ export function errorText(noun: string, error: MutationError): string | null {
       return 'Target is locked — unlock it first'
     case 'cycle':
       return `Can’t nest a ${noun} inside its own descendant`
+    case 'unknown-predicate':
+      return 'Unknown relation type'
+    case 'missing-node-type':
+      return 'Both endpoints need an ontology type'
+    case 'unknown-node-type':
+      return 'Unknown endpoint ontology type'
+    case 'invalid-domain':
+      return 'Invalid source type for this relation'
+    case 'invalid-range':
+      return 'Invalid target type for this relation'
     default:
       return null
   }

@@ -116,7 +116,7 @@ describe('mergeEdges', () => {
 
   it('a confirmed edge shadows the suggestion for the same pair', () => {
     const edges = mergeEdges(
-      [{ id: 'mine', from: 'b', to: 'a', createdAt: 1 }],
+      [{ id: 'mine', from: 'b', to: 'a', createdAt: 1, predicate: 'mentorOf' }],
       [
         { id: 'sugg:a b', from: 'a', to: 'b', createdAt: 0 },
         { id: 'sugg:b c', from: 'b', to: 'c', createdAt: 0 },
@@ -127,6 +127,7 @@ describe('mergeEdges', () => {
       ['mine', 'confirmed'],
       ['sugg:b c', 'suggested'],
     ])
+    expect(edges[0]).toMatchObject({ from: 'b', to: 'a', predicate: 'mentorOf' })
   })
 })
 

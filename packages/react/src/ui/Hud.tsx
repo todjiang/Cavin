@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { groupsByDepth, leafGroups } from '@cavin/core'
+import { groupsByDepth, leafGroups, worldToJsonLd } from '@cavin/core'
 import { useCavin } from '../context'
 import { DimensionSlider } from './DimensionSlider'
 
@@ -21,6 +21,21 @@ export function Hud() {
   const world = useWorld((s) => s.world)
   const addNode = useWorld((s) => s.addNode)
   const resetDemo = useWorld((s) => s.resetDemo)
+
+  const exportOntology = () => {
+    const blob = new Blob([JSON.stringify(worldToJsonLd(world, adapter), null, 2)], {
+      type: 'application/ld+json',
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'cavin-ontology.jsonld'
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    useWorld.getState().toast('JSON-LD exported')
+  }
 
   // Two-step confirm for the destructive reset: first click arms, second fires.
   const [arming, setArming] = useState(false)
@@ -61,6 +76,15 @@ export function Hud() {
             >
               ＋ new {adapter.noun}
             </button>
+            {adapter.ontology && (
+              <button
+                className="hud-button"
+                title="Download confirmed typed relations as a JSON-LD instance graph"
+                onClick={exportOntology}
+              >
+                export JSON-LD
+              </button>
+            )}
             <button
               className={`hud-button${arming ? ' danger' : ''}`}
               title="Clear saved edits and restore the seeded demo data"

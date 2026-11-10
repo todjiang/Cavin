@@ -3,6 +3,8 @@ import type { LayoutConfig } from './config'
 import type { SchemaAdapter } from './adapter'
 import type { CavinNode, TreeMutationError, World } from './types'
 import type { CavinEdge } from './edges'
+import type { RelationValidationError } from './ontology'
+import { ontologyRelation, validateRelation } from './ontology'
 import { deriveWorld, promoteToRootNodes, reparentNodes } from './layout'
 import { nearestGroup, subtree } from './tree'
 
@@ -34,6 +36,8 @@ export type Command<TAttr = unknown> =
   | { type: 'setLocked'; id: string; locked: boolean }
   /** Cascade delete: node + descendants, minus locked branches. */
   | { type: 'remove'; id: string }
+  /** Create a directed ontology fact. */
+  | { type: 'connect'; from: string; to: string; predicate: string }
   | { type: 'confirmEdge'; edge: CavinEdge }
   | { type: 'removeEdge'; id: string }
 
@@ -57,9 +61,11 @@ export interface MutationNotice {
   targetId?: string
 }
 
+export type MutationError = TreeMutationError | RelationValidationError
+
 export interface MutationResult<TAttr = unknown> {
   ok: boolean
-  error?: TreeMutationError
+  error?: MutationError
   /** The derived world after the command. Absent only for silent no-ops. */
   world?: World<TAttr>
   notice?: MutationNotice
@@ -79,6 +85,16 @@ export function newId(rand: () => number = Math.random): string {
 
 function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefined {
   return world.nodeById.get(id)
+}
+
+function hasSemanticTriple(
+  confirmed: CavinEdge[],
+  edge: { from: string; to: string; predicate?: string },
+): boolean {
+  return !!edge.predicate && confirmed.some(
+    (item) =>
+      item.predicate === edge.predicate && item.from === edge.from && item.to === edge.to,
+  )
 }
 
 /**
@@ -278,15 +294,49 @@ export function applyCommand<TAttr>(
       }
     }
 
+    case 'connect': {
+      const { from, to, predicate } = cmd
+      const relation = adapter.ontology
+        ? ontologyRelation(adapter.ontology, predicate)
+        : undefined
+      const edge: CavinEdge = {
+        id: `rel:${newId(rand)}`,
+        from,
+        to,
+        createdAt: Date.now(),
+        label: relation?.label,
+        predicate,
+      }
+      const validation = validateRelation(world.nodeById, edge, adapter)
+      if (!validation.ok) return validation
+      if (hasSemanticTriple(confirmed, edge)) return { ok: true }
+      const edges = [...confirmed, edge]
+      return {
+        ok: true,
+        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
+        notice: { kind: 'edge-confirmed' },
+      }
+    }
+
     case 'confirmEdge': {
       const { from, to } = cmd.edge
-      if (!world.nodeById.has(from) || !world.nodeById.has(to)) return { ok: false, error: 'missing' }
+      const validation = validateRelation(world.nodeById, cmd.edge, adapter)
+      if (!validation.ok) return validation
       // Confirming preserves the suggested edge's pair identity, so the
       // confirmed edge shadows the suggestion in world.edges.
-      if (confirmed.some((e) => e.id === cmd.edge.id)) return { ok: true }
+      if (confirmed.some((e) => e.id === cmd.edge.id) || hasSemanticTriple(confirmed, cmd.edge)) {
+        return { ok: true }
+      }
       const edges: CavinEdge[] = [
         ...confirmed,
-        { id: cmd.edge.id, from, to, createdAt: cmd.edge.createdAt, label: cmd.edge.label },
+        {
+          id: cmd.edge.id,
+          from,
+          to,
+          createdAt: cmd.edge.createdAt,
+          label: cmd.edge.label,
+          ...(cmd.edge.predicate ? { predicate: cmd.edge.predicate } : {}),
+        },
       ]
       return {
         ok: true,

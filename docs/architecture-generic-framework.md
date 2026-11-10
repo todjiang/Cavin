@@ -410,3 +410,15 @@ Five phases, each independently testable, none breaking the demo. Phases P1–P2
 2. **CRDT seam.** If collaboration ever lands, is `Command` the right granularity to sync, or should it be node-level operations? The command union keeps both options open; no decision needed now.
 3. **Where does 5k–50k stress validation live?** Proposal: a script + optional HUD overlay in `examples/knowledge-palace`, not in the packages — performance is validated against a real consumer, and the packages stay free of benchmark scaffolding.
 4. **Adapter versioning.** Persisted data outlives adapters. Should `CavinStorage` records carry an adapter version + migrate hook? Proposal: defer; document that hosts should namespace storage keys by version (`cavin:palace:v1`) until a real migration need appears.
+
+---
+
+## 10. Optional Lightweight Ontology
+
+An adapter may declare `ontology` and `typeOf` to add a semantic layer without changing the spatial model. `groupPath` remains the authoritative navigation/clustering path; it is not an `rdf:type` or `subClassOf` relation. Instance types stay behind the adapter, just like labels and layout vectors.
+
+A `CavinEdge` with a `predicate` is a directed semantic fact. The predicate resolves to an adapter-declared relation with `domain` and `range`; classes may declare one `parent` for lightweight is-a checks. The `connect` command creates these edges, and `confirmEdge` uses the same validator. `deriveWorld` also filters invalid typed edges from initial or persisted input. Failures use structured `MutationResult.error` kinds; user-facing copy remains in `@cavin/react`.
+
+Edges without a predicate retain the original, deliberately undirected association semantics. They still shadow suggestions and participate in focus/degree exactly as before, but are not promoted to ontology facts. The Sanguo example demonstrates the opt-in path with `Person`, `Ruler ⊂ Person`, and three directed predicates: `hasRetainer`, `mentorOf`, and `recommends`. Only unambiguous existing prose relations receive predicates; no endpoint is flipped to make the data fit.
+
+`worldToJsonLd` exports an instance graph containing node ids, types, labels, and valid **confirmed + typed** relations. It deliberately excludes suggestions, untyped associations, positions, groups, locks, and arbitrary attributes. JSON-LD export is a boundary codec, not an OWL/RDFS reasoner: inverse/transitive inference, SHACL, SPARQL, and generic RDF import remain out of scope.

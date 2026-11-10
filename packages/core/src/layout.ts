@@ -4,6 +4,7 @@ import type { SchemaAdapter } from './adapter'
 import type { CavinNode, World } from './types'
 import type { CavinEdge } from './edges'
 import { indexEdgesByNode, mergeEdges } from './edges'
+import { validateRelation } from './ontology'
 import { orderParentsFirst } from './tree'
 import { deriveClusters } from './clusters'
 
@@ -101,8 +102,14 @@ export function deriveWorld<TAttr>(
   // Cross-domain connections: the caller-owned suggestion list merged with
   // the persisted confirmed list (which shadows matching suggestions).
   // Dangling edges (deleted endpoint) are dropped here — deletion is never
-  // blocked.
-  const edges = mergeEdges(confirmedEdges, suggested, new Set(nodeById.keys()))
+  // blocked. Ontology-enabled hosts also drop invalid semantic facts while
+  // preserving legacy untyped associations verbatim.
+  const validConfirmed = adapter.ontology
+    ? confirmedEdges.filter(
+        (edge) => !edge.predicate || validateRelation(nodeById, edge, adapter).ok,
+      )
+    : confirmedEdges
+  const edges = mergeEdges(validConfirmed, suggested, new Set(nodeById.keys()))
   const edgesByNode = indexEdgesByNode(edges)
   const degreeById = new Map<string, number>()
   let maxDegree = 0

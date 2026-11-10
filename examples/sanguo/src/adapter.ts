@@ -1,4 +1,5 @@
 import type { CavinNode, SchemaAdapter } from '@cavin/core'
+import { sanguoOntology } from './ontology'
 import type { Camp, Role, SanguoAttrs, SanguoNode } from './types'
 import { CAMPS, ROLES } from './types'
 
@@ -21,6 +22,11 @@ function isRole(v: unknown): v is Role {
 
 export const sanguoAdapter: SchemaAdapter<SanguoAttrs> = {
   noun: 'person',
+
+  ontology: sanguoOntology,
+  typeOf(node) {
+    return node.attributes.role === '君主' ? 'Ruler' : 'Person'
+  },
 
   labelOf(node) {
     const { name, courtesy } = node.attributes

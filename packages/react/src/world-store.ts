@@ -93,6 +93,8 @@ export interface WorldState<TAttr = unknown> {
   toggleLock: (id: string) => void
   /** Cascade delete: the node + descendants, minus locked branches. No-op (toast) when locked. */
   removeNode: (id: string) => void
+  /** Create a directed semantic relation through the core command funnel. */
+  connectNodes: (from: string, to: string, predicate: string) => MutationResult
   /** Promote a machine-suggested connection to human-confirmed (persisted). */
   confirmEdge: (edge: WorldEdge) => void
   /** Remove a confirmed connection. */
@@ -233,6 +235,9 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
       confirmEdge: (edge) => {
         dispatch({ type: 'confirmEdge', edge: { ...edge } })
       },
+
+      connectNodes: (from, to, predicate) =>
+        dispatch({ type: 'connect', from, to, predicate }),
 
       unlinkEdge: (id) => {
         dispatch({ type: 'removeEdge', id })

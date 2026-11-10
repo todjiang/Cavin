@@ -1,3 +1,5 @@
+import { sanguoPredicate } from './ontology'
+
 /**
  * Cross-person relationships for the Sanguo example.
  *
@@ -24,6 +26,8 @@ export interface SanguoEdge {
   createdAt: number
   /** Human-readable relation label, e.g. "主公" / "师徒". */
   label?: string
+  /** Stable ontology predicate for an unambiguous directed relation. */
+  predicate?: string
 }
 
 export const RELATIONS: SanguoRelation[] = [
@@ -387,12 +391,14 @@ export function generateSanguoEdges(): SanguoEdge[] {
     if (seen.has(key)) continue
     seen.add(key)
     const label = r.note ? `${r.type} · ${r.note}` : r.type
+    const predicate = sanguoPredicate(r)
     out.push({
       id: `rel:${key}`,
       from: r.from,
       to: r.to,
       createdAt: 0,
       label,
+      ...(predicate ? { predicate } : {}),
     })
   }
   return out

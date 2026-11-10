@@ -22,6 +22,9 @@ export interface CavinEdge {
   createdAt: number
   /** Optional human-readable label for confirmed relations, e.g. "主公". */
   label?: string
+  /** Optional ontology relation id. When present, from → to is directional;
+      without it the edge remains an ordinary undirected association. */
+  predicate?: string
 }
 
 export interface WorldEdge extends CavinEdge {

@@ -1,3 +1,4 @@
+import type { OntologySchema } from './ontology'
 import type { CavinNode } from './types'
 
 /**
@@ -60,4 +61,9 @@ export interface SchemaAdapter<TAttr = unknown> {
       the scatter layout uses it for similarity-scaled spread; when absent,
       layout is pure deterministic jitter. */
   layoutVectorOf?(node: CavinNode<TAttr>): number[] | undefined
+
+  /** Optional semantic schema. Spatial groupPath remains independent. */
+  ontology?: OntologySchema
+  /** Host-local ontology class id for this instance. */
+  typeOf?(node: CavinNode<TAttr>): string | undefined
 }
