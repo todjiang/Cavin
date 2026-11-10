@@ -1,3 +1,4 @@
+import { timeFieldOf } from '@cavin/core'
 import { useCavin } from '../context'
 
 /**
@@ -9,7 +10,7 @@ export function DimensionSlider() {
   const { adapter, view: useView } = useCavin()
   const timeT = useView((s) => s.timeT)
   const setTimeT = useView((s) => s.setTimeT)
-  if (!adapter.fields.some((f) => f.time === true)) return null
+  if (!timeFieldOf(adapter)) return null
 
   return (
     <div className="time-slider hud-panel">

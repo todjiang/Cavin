@@ -12,7 +12,7 @@
     "dev:sanguo": "npm run dev --workspace sanguo",
     "dev:tasks": "npm run dev --workspace flat-tasks",
     "test": "vitest run",
-    "typecheck": "tsc -b packages/core packages/react && tsc -p examples/knowledge-palace && tsc -p examples/sanguo && tsc -p examples/flat-tasks",
+    "typecheck": "tsc -b packages/core packages/react && tsc -p packages/core/tsconfig.test.json && tsc -p packages/react/tsconfig.test.json && tsc -p examples/knowledge-palace && tsc -p examples/sanguo && tsc -p examples/flat-tasks",
     "build": "npm run build --workspace @cavin/core && npm run build --workspace @cavin/react && npm run build --workspace knowledge-palace"
   },
   "dependencies": {

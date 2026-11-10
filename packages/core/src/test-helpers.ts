@@ -10,7 +10,6 @@ export interface TestAttrs {
 
 export const testAdapter: SchemaAdapter<TestAttrs> = {
   noun: 'item',
-  groupOf: (n) => n.groupPath ?? [],
   labelOf: (n) => n.attributes.title,
   fields: [{ key: 'title', label: 'Title', kind: 'text' }],
   validate: () => null,

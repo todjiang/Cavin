@@ -1,15 +1,12 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { Camera } from '@cavin/core'
-import { focusForSelection, layoutConfig, revealZoom, visibleNodes } from '@cavin/core'
-import type { RoomMorph } from '@cavin/core'
+import { focusForSelection, nearestGroup, revealZoom } from '@cavin/core'
 import { useCavin } from '../context'
-import { MAX_ZOOM, MIN_ZOOM } from '../view-store'
+import { resolveHotkey } from '../keymap'
 import { DotsCanvas } from './DotsCanvas'
 import { ClusterLabels } from './ClusterLabels'
 import { NodeLabelLayer } from './NodeLabelLayer'
-
-const { camera: CAM, interaction: INTERACT } = layoutConfig
 
 /**
  * Miro-style infinite canvas: drag to pan, wheel to zoom-to-cursor.
@@ -17,17 +14,18 @@ const { camera: CAM, interaction: INTERACT } = layoutConfig
  * the focus animation on selection, ESC to release, and the breadcrumb.
  * Editing entry points: double-click empty space creates a note at the cursor,
  * N creates one at the viewport center, C adds a child to the selection,
- * L locks it, Delete removes it.
+ * L locks it, Delete removes it. Interaction tuning comes from the resolved
+ * per-instance config (context), not the module defaults.
  */
 export function Board() {
-  const { view: useView, world: useWorld } = useCavin()
+  const { view: useView, world: useWorld, config, frame, keymap } = useCavin()
   const containerRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const anim = useRef<{ active: boolean; target: Camera; rate: number }>({
     active: false,
     target: { x: 0, y: 0, zoom: 1 },
-    rate: CAM.focusRate,
+    rate: config.camera.focusRate,
   })
   const selectedId = useView((s) => s.selectedId)
 
@@ -41,6 +39,14 @@ export function Board() {
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick)
       const s = useView.getState()
+      const container = containerRef.current
+      if (container) {
+        // Board is the single viewport source for every layer (paint loops
+        // read it back via the frame holder) and the single driver of the
+        // focus-blend animation — the only place the blend advances.
+        frame.setViewport({ w: container.clientWidth, h: container.clientHeight })
+        frame.advanceFocus(s.selectedId != null && focusForSelection(useWorld.getState().world, s.selectedId) != null)
+      }
 
       if (anim.current.active) {
         const t = anim.current.target
@@ -80,21 +86,9 @@ export function Board() {
         if (now - lastCrumbAt > 200) {
           lastCrumbAt = now
           const { cam } = useView.getState()
-          const { groups } = useWorld.getState().world
           // Breadcrumb = the nearest group's full path, taken at the deepest
-          // grouping level present.
-          let maxDepth = -1
-          for (const g of groups) if (g.depth > maxDepth) maxDepth = g.depth
-          let best: (typeof groups)[number] | null = null
-          let bestD = Infinity
-          for (const g of groups) {
-            if (g.depth !== maxDepth) continue
-            const d = Math.hypot(g.centroid[0] - cam.x, g.centroid[1] - cam.y)
-            if (d < bestD) {
-              bestD = d
-              best = g
-            }
-          }
+          // grouping level present (tree.nearestGroup).
+          const best = nearestGroup(useWorld.getState().world, [cam.x, cam.y])
           const crumb = best ? best.path.join(' / ') : ''
           if (crumb !== lastBreadcrumb) {
             lastBreadcrumb = crumb
@@ -107,11 +101,12 @@ export function Board() {
           // you instead of sliding off-screen. Deliberately gentle —
           // explicit pans always win (they reset the target directly).
           if (anim.current.active) {
-            const { zCards } = useView.getState()
+            const { zCards, selectedId } = useView.getState()
             const world = useWorld.getState().world
-            const vis = visibleNodes(world, cam, window.innerWidth, window.innerHeight, zCards, 40)
-            let deep: { m: RoomMorph; d: number } | null = null
-            for (const v of vis) {
+            const sc = frame.scene(world, cam, zCards, selectedId, frame.getViewport(), config.scene.recenterMargin)
+            let deep: { m: (typeof sc.entries)[number]['morph']; d: number } | null = null
+            for (const v of sc.entries) {
+              if (v.offscreen) continue
               if (v.morph.pass <= 0.5) continue
               const d = world.depthById.get(v.node.id) ?? 0
               if (!deep || d > deep.d) deep = { m: v.morph, d }
@@ -120,9 +115,9 @@ export function Board() {
               const t = anim.current.target
               const offX = (deep.m.pos[0] - t.x) * t.zoom
               const offY = (deep.m.pos[1] - t.y) * t.zoom
-              if (offX * offX + offY * offY > INTERACT.recenterDistance ** 2) {
-                t.x += (deep.m.pos[0] - t.x) * INTERACT.recenterRate
-                t.y += (deep.m.pos[1] - t.y) * INTERACT.recenterRate
+              if (offX * offX + offY * offY > config.interaction.recenterDistance ** 2) {
+                t.x += (deep.m.pos[0] - t.x) * config.interaction.recenterRate
+                t.y += (deep.m.pos[1] - t.y) * config.interaction.recenterRate
               }
             }
           }
@@ -131,7 +126,7 @@ export function Board() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [useView, useWorld])
+  }, [useView, useWorld, config, frame])
 
   // Wheel = zoom to cursor (non-passive so we can preventDefault).
   useEffect(() => {
@@ -145,7 +140,10 @@ export function Board() {
       // Normalize Firefox line-mode deltas (~16px/line) to pixel-mode.
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
       const z0 = s.cam.zoom
-      const z1 = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z0 * Math.exp(-delta * CAM.wheelSpeed)))
+      const z1 = Math.min(
+        s.maxZoom,
+        Math.max(s.minZoom, z0 * Math.exp(-delta * config.camera.wheelSpeed)),
+      )
       // While a selection focus is active the constellation is the content:
       // anchor the zoom to the selected node instead of the cursor, so a
       // wheel gesture can never fling the ring off-screen.
@@ -159,41 +157,46 @@ export function Board() {
       const wx = s.cam.x + ax / z0
       const wy = s.cam.y + ay / z0
       anim.current.target = { x: wx - ax / z1, y: wy - ay / z1, zoom: z1 }
-      anim.current.rate = CAM.wheelRate
+      anim.current.rate = config.camera.wheelRate
       anim.current.active = true
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [useView, useWorld])
+  }, [useView, useWorld, config])
 
-  // Keyboard: ESC release, Delete/L/N on the selection, ignored while typing.
+  // Keyboard: the one hotkey policy (keymap.ts) — ESC release, Delete/L/N/C
+  // on the selection. Guards (typing targets, IME, modifiers) live there.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.isComposing) return // don't fire hotkeys mid-IME composition
+      const action = resolveHotkey(keymap, e)
+      if (!action) return
       const view = useView.getState()
       const worldStore = useWorld.getState()
-      if (e.key === 'Escape') {
-        view.select(null)
-        worldStore.setEditing(null)
-        return
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && view.selectedId) {
-        e.preventDefault()
-        worldStore.removeNode(view.selectedId)
-      } else if (e.key.toLowerCase() === 'l' && view.selectedId) {
-        worldStore.toggleLock(view.selectedId)
-      } else if (e.key.toLowerCase() === 'c' && view.selectedId) {
-        worldStore.addChild(view.selectedId)
-      } else if (e.key.toLowerCase() === 'n') {
-        worldStore.addNode([view.cam.x, view.cam.y])
+      e.preventDefault()
+      switch (action) {
+        case 'select-none':
+          view.select(null)
+          worldStore.setEditing(null)
+          break
+        case 'delete':
+          if (view.selectedId) worldStore.removeNode(view.selectedId)
+          break
+        case 'toggle-lock':
+          if (view.selectedId) worldStore.toggleLock(view.selectedId)
+          break
+        case 'add-child':
+          if (view.selectedId) worldStore.addChild(view.selectedId)
+          break
+        case 'add-node':
+          worldStore.addNode([view.cam.x, view.cam.y])
+          break
+        case 'focus-search':
+          break // owned by SearchBox
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [useView, useWorld])
+  }, [useView, useWorld, keymap])
 
   // Click a node label → ease the camera to it. Zoom past the pass-through
   // point (zoom = hierarchy), so selecting a parent lands you *inside* its
@@ -207,16 +210,19 @@ export function Board() {
     const depth = world.depthById.get(selectedId) ?? 0
     const hasKids = (world.childrenByParent.get(selectedId)?.length ?? 0) > 0
     const targetZoom = hasKids
-      ? revealZoom(depth + 1, zCards) * INTERACT.focusKidsZoom
-      : Math.max(zRooms * INTERACT.focusMinZoom, revealZoom(depth, zCards) * INTERACT.focusLeafZoom)
+      ? revealZoom(depth + 1, zCards, config) * config.interaction.focusKidsZoom
+      : Math.max(
+          zRooms * config.interaction.focusMinZoom,
+          revealZoom(depth, zCards, config) * config.interaction.focusLeafZoom,
+        )
     anim.current.target = {
       x: node.position[0],
       y: node.position[1],
-      zoom: Math.min(MAX_ZOOM, Math.max(cam.zoom, targetZoom)),
+      zoom: Math.min(useView.getState().maxZoom, Math.max(cam.zoom, targetZoom)),
     }
-    anim.current.rate = CAM.focusRate
+    anim.current.rate = config.camera.focusRate
     anim.current.active = true
-  }, [selectedId, useView, useWorld])
+  }, [selectedId, useView, useWorld, config])
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     drag.current = { x: e.clientX, y: e.clientY, moved: false }

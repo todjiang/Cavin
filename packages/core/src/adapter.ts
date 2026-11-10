@@ -5,6 +5,19 @@ import type { CavinNode } from './types'
  * must write. The core and the React canvas never read schema fields by
  * name; every field access goes through this interface.
  */
+/**
+ * Declarative schema for one host attribute field. Beyond `key`, the kinds
+ * carry positional semantics the accessors rely on:
+ *
+ * - EVERY `tags`-kind field contributes: `tagsOf` concatenates the values of
+ *   all tags-kind fields, in declaration order.
+ * - The FIRST `multiline`-kind field is the body: `bodyOf` reads only the
+ *   first one and ignores further multiline fields.
+ * - At most ONE field should carry `time: true`: the first one found drives
+ *   the time axis (`timeOf` / `timeRangeOf` / the dimension slider).
+ * - `number`-kind values must be stored as JS numbers (not strings) or the
+ *   time axis and sliders will not see them.
+ */
 export interface FieldDescriptor<TAttr = unknown> {
   /** Key into TAttr. */
   key: keyof TAttr & string
@@ -20,11 +33,6 @@ export interface FieldDescriptor<TAttr = unknown> {
 export interface SchemaAdapter<TAttr = unknown> {
   /** Human name for an item ("note", "task", "organism") — drives all copy. */
   noun: string
-
-  /** Cluster path for a node, coarse → fine. Called for nodes that arrive
-      without a denormalized `groupPath` (fresh imports); length may vary per
-      node; an empty array means "ungrouped" (renders as free space). */
-  groupOf(node: CavinNode<TAttr>): string[]
 
   /** One-line label for chips, minimap, breadcrumb, toasts, search hits. */
   labelOf(node: CavinNode<TAttr>): string

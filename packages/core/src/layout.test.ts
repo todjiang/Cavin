@@ -1,21 +1,34 @@
 import { describe, expect, it } from 'vitest'
+import type { CavinEdge } from './edges'
+import { suggestEdges } from './edges'
 import type { World } from './types'
 import { family, makeNode, testAdapter } from './test-helpers'
 import type { TestAttrs } from './test-helpers'
-import {
-  deletableSubtree,
-  deriveWorld,
-  focusForSelection,
-  movableSubtree,
-  promoteToRootNodes,
-  reparentNodes,
-} from './layout'
+import { deriveWorld } from './layout'
+import { focusForSelection } from './selection'
+import { promoteToRootNodes, reparentNodes, layoutNodes } from './mutations'
+import { subtree } from './tree'
 
 /**
  * Framework contract tests: the refinement rules a curator relies on —
  * orphan promotion, child re-anchoring, lock shielding, cycle-safe
  * re-parenting, and promote-to-root. No DOM, no store, no React.
  */
+
+/** Call-site suggestion list, the way the world-store owns it: suggestions
+    are computed by the caller and handed to deriveWorld. */
+const suggestedOf = (nodes: ReturnType<typeof family>): CavinEdge[] =>
+  suggestEdges(
+    nodes,
+    (n) => n.groupPath[0] ?? '',
+    (n) => testAdapter.layoutVectorOf?.(n),
+  )
+
+const deriveWithSuggestions = (
+  nodes: ReturnType<typeof family> = family(),
+  confirmed: CavinEdge[] = [],
+): World<TestAttrs> =>
+  deriveWorld(nodes, testAdapter, undefined, confirmed, undefined, suggestedOf(nodes))
 
 describe('deriveWorld', () => {
   it('promotes children with a missing parent to roots', () => {
@@ -43,6 +56,50 @@ describe('deriveWorld', () => {
     expect(world.depthById.get('c')).toBe(2)
   })
 
+  it('repairs a child-first input: re-anchoring chains through every generation', () => {
+    // Stored child positions are deliberately WRONG: without the parents-
+    // first repair, c anchors to b's stale stored position and the chain
+    // is silently wrong. With repair, both ride their parent + relOffset.
+    const nodes = [
+      makeNode({ id: 'a', position: [100, 100] }),
+      makeNode({
+        id: 'b',
+        parentId: 'a',
+        state: { relOffset: [10, 0] },
+        position: [999, 999],
+      }),
+      makeNode({
+        id: 'c',
+        parentId: 'b',
+        state: { relOffset: [0, 10] },
+        position: [999, 999],
+      }),
+    ]
+    const world = deriveWorld([nodes[2], nodes[1], nodes[0]], testAdapter)
+    expect(world.nodeById.get('b')!.position).toEqual([110, 100])
+    expect(world.nodeById.get('c')!.position).toEqual([110, 110])
+  })
+
+  it('emits parents-first node order even for child-first input', () => {
+    const [a, b, c, d] = family()
+    const world = deriveWorld([c, b, d, a], testAdapter)
+    expect(world.nodes.map((n) => n.id)).toEqual(['d', 'a', 'b', 'c'])
+  })
+
+  it('lays a child-first chain around its parent, not the leaf centroid', () => {
+    const [a, b, c] = family()
+    const laid = layoutNodes([c, b, a], testAdapter)
+    const byId = new Map(laid.map((n) => [n.id, n]))
+    const dist = (x: string, y: string) =>
+      Math.hypot(
+        byId.get(x)!.position[0] - byId.get(y)!.position[0],
+        byId.get(x)!.position[1] - byId.get(y)!.position[1],
+      )
+    // childOrbitSigma × 3-sigma gauss bound ≈ 54 world units.
+    expect(dist('b', 'a')).toBeLessThan(60)
+    expect(dist('c', 'b')).toBeLessThan(60)
+  })
+
   it('does not mutate the input nodes', () => {
     const nodes = family()
     const snapshot = JSON.stringify(nodes)
@@ -55,7 +112,7 @@ describe('deriveWorld edges', () => {
   // family(): a, b, c in group ML; d in group Design — every node shares the
   // same unit embedding, so all three ML↔Design pairs suggest at sim 1.
   it('derives suggested cross-domain edges from layout vectors', () => {
-    const world = deriveWorld(family(), testAdapter)
+    const world = deriveWithSuggestions()
     expect(world.edges).toHaveLength(3)
     expect(world.edges.every((e) => e.kind === 'suggested')).toBe(true)
     expect(world.edges.every((e) => e.id.startsWith('sugg:'))).toBe(true)
@@ -68,7 +125,7 @@ describe('deriveWorld edges', () => {
       { id: 'mine', from: 'c', to: 'd', createdAt: 1 },
       { id: 'dead', from: 'a', to: 'ghost', createdAt: 1 },
     ]
-    const world = deriveWorld(family(), testAdapter, undefined, confirmed)
+    const world = deriveWithSuggestions(family(), confirmed)
     expect(world.edges).toHaveLength(3)
     expect(world.edges.find((e) => e.id === 'mine')!.kind).toBe('confirmed')
     expect(world.edges.some((e) => e.id === 'dead')).toBe(false)
@@ -82,7 +139,7 @@ describe('deriveWorld edges', () => {
 
   it('ranks nodes by connection degree (importance)', () => {
     const confirmed = [{ id: 'mine', from: 'c', to: 'd', createdAt: 1 }]
-    const world = deriveWorld(family(), testAdapter, undefined, confirmed)
+    const world = deriveWithSuggestions(family(), confirmed)
     // d touches sugg a–d, sugg b–d and confirmed c–d; each ML node touches one.
     expect(world.degreeById.get('d')).toBe(3)
     expect(world.degreeById.get('a')).toBe(1)
@@ -104,8 +161,7 @@ describe('focusForSelection', () => {
     const world = deriveWorld(family(), testAdapter, undefined, confirmed)
     expect(focusForSelection(world, null)).toBeNull()
     expect(focusForSelection(world, 'ghost')).toBeNull()
-    // b has only a suggested edge — no focus mode.
-    expect(focusForSelection(world, 'b')).toBeNull()
+    expect(focusForSelection(world, 'b')).toBeNull() // b has no confirmed edges — no focus mode
   })
 
   it('contains the confirmed neighbors plus tree context', () => {
@@ -148,22 +204,34 @@ describe('focusForSelection', () => {
   })
 })
 
-describe('deletableSubtree / movableSubtree', () => {
+describe('subtree (the single delete/move traversal)', () => {
+  // Delete and move used to carry two character-identical walkers
+  // (deletableSubtree/movableSubtree); they are now one query.
+  it.each([
+    ['with lock shielding', true],
+    ['ignoring locks (picker exclusion)', false],
+  ])('collects the subtree %s', (_label, stopAtLocked) => {
+    const world: World<TestAttrs> = deriveWorld(family(), testAdapter)
+    expect([...subtree(world, 'a', { stopAtLocked })].sort()).toEqual(['a', 'b', 'c'])
+    // Unrelated roots are never included.
+    expect(subtree(world, 'a', { stopAtLocked }).has('d')).toBe(false)
+  })
+
   it('a locked node shields itself and its whole branch', () => {
     const nodes = family().map((n) =>
       n.id === 'b' ? { ...n, state: { ...n.state, locked: true } } : n,
     )
     const world: World<TestAttrs> = deriveWorld(nodes, testAdapter)
-    // Deleting a removes a only — b is locked and shields c.
-    expect([...deletableSubtree(world, 'a')].sort()).toEqual(['a'])
-    expect([...movableSubtree(world, 'a')].sort()).toEqual(['a'])
+    // Deleting/moving a removes a only — b is locked and shields c.
+    expect([...subtree(world, 'a')].sort()).toEqual(['a'])
   })
 
-  it('includes the full subtree when nothing is locked', () => {
-    const world = deriveWorld(family(), testAdapter)
-    expect([...deletableSubtree(world, 'a')].sort()).toEqual(['a', 'b', 'c'])
-    // Unrelated roots are never included.
-    expect(deletableSubtree(world, 'a').has('d')).toBe(false)
+  it('ignores locks only when the caller asks for it', () => {
+    const nodes = family().map((n) =>
+      n.id === 'b' ? { ...n, state: { ...n.state, locked: true } } : n,
+    )
+    const world: World<TestAttrs> = deriveWorld(nodes, testAdapter)
+    expect([...subtree(world, 'a', { stopAtLocked: false })].sort()).toEqual(['a', 'b', 'c'])
   })
 })
 

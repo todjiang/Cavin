@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/styles.css dist/styles.css"
+    "build": "rm -rf dist && tsc -p tsconfig.json && cp src/styles.css dist/styles.css"
   },
   "peerDependencies": {
     "react": "^19.0.0",

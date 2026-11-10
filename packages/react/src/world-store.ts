@@ -4,31 +4,33 @@ import type {
   CavinEdge,
   CavinNode,
   CavinStorage,
+  Command,
   DeepPartial,
   LayoutConfig,
-  MutationNotice,
+  MutationResult,
   SchemaAdapter,
-  TreeMutationError,
   World,
   WorldEdge,
 } from '@cavin/core'
-import {
-  applyCommand,
-  applyDragFrame,
-  createMemoryCavinStorage,
-  deletableSubtree,
-  deriveWorld,
-  labelOf,
-  layoutConfig,
-  mergeConfig,
-} from '@cavin/core'
+import { applyCommand, createMemoryCavinStorage, layoutConfig, mergeConfig, subtree } from '@cavin/core'
+import { createSuggestionCache } from './suggestions'
+import { createSession } from './session'
+import { createEditor } from './editor'
+import { errorText, noticeToast } from './notices'
 
 /**
- * The world store factory — one store per mounted canvas (never a module
- * singleton, so two canvases can coexist on one page). Every editing action
- * is a thin wrapper over `applyCommand`: the mutation semantics live in the
- * core, and this layer only maps results to toasts, selection requests, and
- * debounced persistence.
+ * The world store — a thin zustand shell. One store per mounted canvas
+ * (never a module singleton). Every editing action dispatches through the
+ * core command funnel (`applyCommand`); the heavy lifting lives elsewhere:
+ *
+ * - session.ts — boot / reset / debounced persistence (storage wins else
+ *   draft) and the suggestion-list bookkeeping;
+ * - editor.ts — the frame-coalesced drag buffer (one `move` command per
+ *   frame, so drags travel through applyCommand like every other edit);
+ * - notices.ts — mutation-result → toast copy;
+ * - selection.ts (via the injected `onSelectRequest`) — the world store's
+ *   selection requests reach the view store without the two importing each
+ *   other.
  */
 
 export interface ToastMsg {
@@ -36,44 +38,38 @@ export interface ToastMsg {
   text: string
 }
 
-export interface EdgesStore {
-  load(): CavinEdge[] | null
-  save(edges: CavinEdge[]): boolean
-  clear(): void
-}
-
 export interface WorldStoreOptions<TAttr> {
   adapter: SchemaAdapter<TAttr>
   /** Deep-merged over the core defaults. */
   config?: DeepPartial<LayoutConfig>
-  /** Node persistence. Omit for in-memory worlds. */
+  /** Snapshot persistence ({ nodes, confirmedEdges }). Omit for in-memory worlds. */
   storage?: CavinStorage<TAttr>
-  /** Confirmed-edge persistence; defaults to none (the core's CavinStorage
-      carries nodes only). */
-  edgesStore?: EdgesStore
   /** The machine draft this canvas edits (first boot, and demo resets). */
   initialNodes?: CavinNode<TAttr>[]
   initialEdges?: CavinEdge[]
+  /**
+   * Selection seam: the canvas injects a callback that applies selection
+   * requests to the view store (create actions select the new node). The
+   * stores never import each other — this callback IS the call between them.
+   */
+  onSelectRequest?: (id: string | null) => void
+  /**
+   * The one observability hook the command layer was designed for: called
+   * with every command and its result, errors included — a host can log,
+   * audit or sync edits without forking the component.
+   */
+  onMutation?: (cmd: Command<TAttr>, result: MutationResult<TAttr>) => void
 }
 
 export interface WorldState<TAttr = unknown> {
   adapter: SchemaAdapter<TAttr>
   config: LayoutConfig
   world: World<TAttr>
-  /** Human-confirmed cross-domain connections (persisted). The renderable
-      edge list — confirmed + machine-suggested — lives on `world.edges`. */
-  edges: CavinEdge[]
-  /** Node currently open in edit mode in the DetailPanel (must equal selectedId). */
+  /** Node currently open in edit mode in the DetailPanel. The invariant
+      `editingId === selectedId` (view store) is enforced centrally by
+      selection.ts — not by comparisons at read sites. */
   editingId: string | null
   toasts: ToastMsg[]
-  /**
-   * Selection request for the view layer. The world store is deliberately
-   * decoupled from the view store: instead of calling `select()` directly,
-   * actions set this field and the canvas composition applies it — along
-   * with clearing the selection when the selected node disappears from the
-   * world (delete / reset).
-   */
-  requestedSelection: { id: string | null } | null
 
   /** Create a root at a world position in the nearest group; selects + opens editor. */
   addNode: (at: [number, number]) => string
@@ -109,139 +105,73 @@ export interface WorldState<TAttr = unknown> {
   dismissToast: (id: number) => void
 }
 
-let toastSeq = 0
-
-const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
-
-/** Notice-kind → user-facing copy, interpolated with the adapter's noun. */
-function noticeText(noun: string, notice: MutationNotice): string | null {
-  switch (notice.kind) {
-    case 'created':
-      return `${cap(noun)} created`
-    case 'child-created':
-      return `Child ${noun} created`
-    case 'saved':
-      return 'Saved'
-    case 'rejoined':
-    case 'reset-orbit':
-      return 'Back in orbit'
-    case 'reset-root':
-      return 'Back in the grid'
-    case 'promoted':
-      return `Promoted to a root ${noun}`
-    case 'locked':
-      return `${cap(noun)} locked & confirmed`
-    case 'unlocked':
-      return `${cap(noun)} unlocked`
-    case 'deleted':
-      return notice.count && notice.count > 1
-        ? `Deleted ${notice.count} ${noun}s`
-        : `${cap(noun)} deleted`
-    case 'edge-confirmed':
-      return 'Connection confirmed'
-    case 'edge-removed':
-      return 'Connection removed'
-    case 'reparented':
-      return null // resolved by the caller against the new parent's label
-  }
-}
-
-/** Error-kind → user-facing copy; silent for no-ops (missing/self/noop). */
-function errorText(noun: string, error: TreeMutationError): string | null {
-  switch (error) {
-    case 'locked-node':
-      return `${cap(noun)} is locked — unlock it first`
-    case 'locked-target':
-      return 'Target is locked — unlock it first'
-    case 'cycle':
-      return `Can’t nest a ${noun} inside its own descendant`
-    default:
-      return null
-  }
-}
-
 export type WorldStore<TAttr = unknown> = UseBoundStore<StoreApi<WorldState<TAttr>>>
 
 export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): WorldStore<TAttr> {
   const adapter = options.adapter
   const config = mergeConfig(layoutConfig, options.config ?? ({} as DeepPartial<LayoutConfig>))
   const storage = options.storage ?? createMemoryCavinStorage<TAttr>()
-  const edgesStore = options.edgesStore ?? null
-  const noun = adapter.noun
+  const onSelectRequest = options.onSelectRequest ?? (() => {})
+  // Per-instance toast id counter (was module state — two stores on one page
+  // shared it).
+  let toastSeq = 0
 
-  /** Boot: restore the persisted world if present, else the initial draft. */
-  function boot(): { world: World<TAttr>; edges: CavinEdge[] } {
-    try {
-      const storedNodes = storage.load()
-      if (storedNodes && storedNodes.length > 0) {
-        const storedEdges = edgesStore?.load() ?? options.initialEdges ?? []
-        return {
-          world: deriveWorld(storedNodes, adapter, undefined, storedEdges, config),
-          edges: storedEdges,
-        }
-      }
-    } catch {
-      // Corrupt shape — fall through to the initial draft.
-    }
-    const edges = options.initialEdges ?? []
-    return {
-      world: deriveWorld(options.initialNodes ?? [], adapter, undefined, edges, config),
-      edges,
-    }
-  }
+  const session = createSession<TAttr>({
+    adapter,
+    config,
+    storage,
+    suggestions: createSuggestionCache<TAttr>(adapter, config.edges),
+    initialNodes: options.initialNodes,
+    initialEdges: options.initialEdges,
+  })
 
   const store = create<WorldState<TAttr>>()((set, get) => {
-    const initial = boot()
+    // Frame-coalesced drag: the editor buffers pointermove positions and
+    // flushes ONE move command per frame — drags travel through
+    // applyCommand like every other edit, with full observability.
+    const editor = createEditor({
+      dispatch: (cmd) => {
+        dispatch(cmd)
+      },
+    })
 
     /** Dispatch through the core command funnel; surface notices/toasts. */
     const dispatch = (cmd: Parameters<typeof applyCommand<TAttr>>[1]) => {
       const res = applyCommand(get().world, cmd, adapter, config)
+      options.onMutation?.(cmd, res)
       if (!res.ok) {
-        const text = res.error ? errorText(noun, res.error) : null
+        const text = res.error ? errorText(adapter.noun, res.error) : null
         if (text) get().toast(text)
         return res
       }
-      if (res.world) set({ world: res.world })
-      if (res.edges !== undefined) set({ edges: res.edges })
+      if (res.world) {
+        // Suggestions are the session's job: withFreshSuggestions re-derives
+        // only when the suggestion cache says the inputs changed.
+        set({ world: session.withFreshSuggestions(res.world) })
+      }
       if (res.notice) {
-        if (res.notice.kind === 'reparented') {
-          const parent = get().world.nodeById.get(res.notice.targetId ?? '')
-          get().toast(`Moved under “${parent ? labelOf(adapter, parent) : noun}”`)
-        } else {
-          const text = noticeText(noun, res.notice)
-          if (text) get().toast(text)
-        }
+        const text = noticeToast(adapter, get().world, res.notice)
+        if (text) get().toast(text)
       }
       return res
     }
 
-    // Frame-coalesced drag: pointermove can exceed 60Hz, but a drag's position
-    // update only needs to land once per frame. Buffered target, flushed on
-    // the next rAF — at most one world bump per frame.
-    let pendingMove: { id: string; pos: [number, number] } | null = null
-    let moveRaf = 0
-    const flushMove = () => {
-      moveRaf = 0
-      if (!pendingMove) return
-      const { id, pos } = pendingMove
-      pendingMove = null
-      const framed = applyDragFrame(get().world, id, pos)
-      if (framed) set({ world: framed })
+    const selectAndEdit = (id: string) => {
+      onSelectRequest(id)
+      set({ editingId: id })
     }
 
     return {
       adapter,
       config,
-      world: initial.world,
-      edges: initial.edges,
+      world: session.boot(),
       editingId: null,
       toasts: [],
-      requestedSelection: null,
 
       addNode: (at) => {
         const res = dispatch({ type: 'add', at })
         const id = res.createdId ?? ''
-        if (id) set({ requestedSelection: { id }, editingId: id })
+        if (id) selectAndEdit(id)
         return id
       },
 
@@ -251,7 +181,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         if (id) {
           // Selecting the new child flies the camera to it; Board zooms to
           // reveal its depth automatically (zoom = hierarchy, no expand flags).
-          set({ requestedSelection: { id }, editingId: id })
+          selectAndEdit(id)
         }
         return id
       },
@@ -265,11 +195,12 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
         const node = get().world.nodeById.get(id)
         if (!node || node.state.locked) return
         if (!node.state.placed) {
+          // First move detaches the node from its orbit — that must land
+          // immediately (the drag seed depends on it), not at frame end.
           dispatch({ type: 'move', id, to: pos })
           return
         }
-        pendingMove = { id, pos }
-        if (!moveRaf) moveRaf = requestAnimationFrame(flushMove)
+        editor.bufferMove(id, pos)
       },
 
       reparentNode: (id, newParentId) => {
@@ -292,10 +223,10 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
       },
 
       removeNode: (id) => {
-        const doomed = deletableSubtree(get().world, id)
+        const doomed = subtree(get().world, id)
         dispatch({ type: 'remove', id })
-        // Selection cleanup happens in the canvas bridge: the deleted ids are
-        // no longer in the world, so a stale selectedId is cleared there.
+        // Selection cleanup happens in selection.ts: the deleted ids are no
+        // longer in the world, so a stale selectedId is cleared there.
         set((s) => ({ editingId: s.editingId && doomed.has(s.editingId) ? null : s.editingId }))
       },
 
@@ -308,14 +239,7 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
       },
 
       resetDemo: () => {
-        storage.clear()
-        edgesStore?.clear()
-        const edges = options.initialEdges ?? []
-        set({
-          world: deriveWorld(options.initialNodes ?? [], adapter, undefined, edges, config),
-          edges,
-          editingId: null,
-        })
+        set({ world: session.reset(), editingId: null })
         get().toast('Demo data restored')
       },
 
@@ -326,26 +250,8 @@ export function createWorldStore<TAttr>(options: WorldStoreOptions<TAttr>): Worl
     }
   })
 
-  // Persist the node array + confirmed edges (debounced) whenever they change.
-  // A failed save surfaces as a one-shot toast so the user knows persistence
-  // stopped.
-  let saveTimer: number | undefined
-  let lastSaveWarned = false
-  store.subscribe((s, prev) => {
-    if (s.world === prev.world && s.edges === prev.edges) return
-    window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => {
-      const okNodes = storage.save(store.getState().world.nodes)
-      const okEdges = edgesStore ? edgesStore.save(store.getState().edges) : true
-      const ok = okNodes && okEdges
-      if (!ok && !lastSaveWarned) {
-        lastSaveWarned = true
-        store.getState().toast('Storage full — changes won’t persist')
-      } else if (ok) {
-        lastSaveWarned = false
-      }
-    }, 300)
-  })
+  // Debounced snapshot persistence — owned by the session module.
+  session.persistOnChange(store, (text) => store.getState().toast(text))
 
   return store
 }

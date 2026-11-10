@@ -1,12 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { hsla, groupsByDepth, lodLevels, roomMorph, roomRadiusEase } from '@cavin/core'
 import type { GroupCluster } from '@cavin/core'
-import { hsla, layoutConfig, smoothstep } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
-import { focusForSelection, focusRingTargets, lodLevels, roomMorph, roomRadiusEase, visibleNodes } from '@cavin/core'
-import type { RoomMorph, VisibleEntry } from '@cavin/core'
 
-const { edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = layoutConfig
 
 /**
  * Canvas layer: node dots (colored by top-level group via the adapter, sized
@@ -17,13 +14,14 @@ const { edges: EDGES, importance: IMPORTANCE, focus: FOCUS } = layoutConfig
  * room's ring once it opens. Redrawn every frame from the store camera.
  */
 export function DotsCanvas() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, frame } = useCavin()
   const ref = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = ref.current!
     const ctx = canvas.getContext('2d')!
-    const paletteOf = paletteMemo(adapter)
+    const { blobs: BLOBS, edges: EDGES, importance: IMPORTANCE } = config
+    const paletteOf = paletteMemo(adapter, config)
     let raf = 0
     // Dirty-check: skip the full redraw while nothing the canvas depends on
     // has changed (idle), instead of re-rasterizing every frame.
@@ -33,17 +31,17 @@ export function DotsCanvas() {
     let lastZRooms = -1
     let lastZCards = -1
     let lastSelected: unknown = null
-    // Constellation gather animation: eases 0→1 while a focus is active so
-    // the related nodes fly in from their home positions. Resets on deselect.
-    let focusBlend = 0
-    let focusOn = false
+    // Whether the last drawn frame had a focus — while true and the shared
+    // blend (advanced once per frame in Board's tick) is still converging,
+    // keep redrawing so the gather animation plays out.
+    let hadFocus = false
 
     const draw = () => {
       raf = requestAnimationFrame(draw)
       const { cam, zRooms, zCards, timeT, selectedId } = useView.getState()
       const world = useWorld.getState().world
       const palette = paletteOf(world)
-      const gathering = focusOn && focusBlend < 1
+      const gathering = hadFocus && frame.focusBlend() < 1
       if (cam === lastCam && world === lastWorld && timeT === lastTimeT && zRooms === lastZRooms && zCards === lastZCards && selectedId === lastSelected && !gathering) return
       lastCam = cam
       lastWorld = world
@@ -68,17 +66,16 @@ export function DotsCanvas() {
       // arcs across the map — they read as noise and are easy to confuse
       // with the parent→child tree.
       const confirmedEdges = world.edges.filter((e) => e.kind === 'confirmed')
-      const sx = (wx: number) => w / 2 + (wx - cam.x) * cam.zoom
-      const sy = (wy: number) => h / 2 + (wy - cam.y) * cam.zoom
-      // One morph cache shared by rooms, edges and dots this frame; the
-      // visible list is walked top-down so closed off-screen subtrees are
-      // never recursed into. Computed lazily — blobs don't need morphs.
-      const morph = new Map<string, RoomMorph>()
-      let visible: VisibleEntry[] | null = null
-      const vis = () => (visible ??= visibleNodes(world, cam, w, h, zCards, 8, morph))
+      // The scene IS the frame: one shared morph cache (see the contract on
+      // Scene.morphs), one visibility walk, screen positions ready to paint.
+      // Cull padding = dot radius.
+      const scene = frame.scene(world, cam, zCards, selectedId, { w, h }, config.scene.dotMargin)
+      const { entries, morphs } = scene
+      const sx = (wx: number) => scene.project(wx, 0)[0]
+      const sy = (wy: number) => scene.project(0, wy)[1]
       const morphOf = (id: string) => {
         const n = world.nodeById.get(id)!
-        return roomMorph(world, n, cam.zoom, cam, zCards, morph)
+        return roomMorph(world, n, cam.zoom, cam, zCards, morphs, config)
       }
 
       // Selection spotlight: confirmed edges touching the selected node are
@@ -86,7 +83,7 @@ export function DotsCanvas() {
       // When the node HAS confirmed edges this becomes a focus mode: the
       // spotlight set (relations + tree context) is the only thing drawn at
       // full strength; every other dot, label and arc leaves the stage.
-      const focus = focusForSelection(world, selectedId)
+      const focus = scene.focus
       const spotEdges = new Set<string>()
       const spotNodes = new Set<string>()
       if (focus) {
@@ -102,19 +99,17 @@ export function DotsCanvas() {
       }
       const spotlight = spotEdges.size > 0
 
-      // Constellation: the focus ring eases in over a few frames. Positions
-      // are a display-layer blend between each node's room-morph home and
-      // its ring slot — the world itself never moves.
-      focusOn = focus != null
-      if (!focus) focusBlend = 0
-      else focusBlend = Math.min(1, focusBlend + (1 - focusBlend) * FOCUS.blendRate)
-      const focusK = smoothstep(0, 1, focusBlend)
-      const ringTargets = focus
-        ? focusRingTargets(world, focus, morphOf(focus.id).pos, cam.zoom)
-        : null
+      // Constellation: the focus ring eases in over a few frames. The blend
+      // itself advances once per frame in Board's tick — this layer (and the
+      // label layer) only read the eased value. Display positions blend
+      // between each node's room-morph home and its ring slot — the world
+      // itself never moves.
+      hadFocus = focus != null
+      const focusK = scene.focusK
+      const ringTargets = scene.ringTargets
       const dispOf = (id: string): [number, number] => {
-        const base = (morph.get(id) ?? morphOf(id)).pos
-        const t = ringTargets?.get(id)
+        const base = (morphs.get(id) ?? morphOf(id)).pos
+        const t = ringTargets.get(id)
         if (!t) return base
         return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
       }
@@ -123,34 +118,31 @@ export function DotsCanvas() {
       const dotsLv = focus ? Math.max(lv.dots, focusK) : lv.dots
       const edgeLabelsOn = cam.zoom >= zRooms * 0.8
 
-      // Blurred blobs: soft top-level glow + sub-group blobs, rising as you
-      // zoom out. Groups sliced by depth (0 = top level, 1 = first sub-level).
+      // Blurred blobs: soft glow per cluster band, rising as you zoom out.
+      // Bands come from the world — one pass per grouping depth present.
       if (lv.blobs > 0.01) {
-        for (const top of world.groups) {
-          if (top.depth !== 0) continue
-          const x = sx(top.centroid[0])
-          const y = sy(top.centroid[1])
-          const r = top.radius * 1.15 * cam.zoom
-          if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-          g.addColorStop(0, hsla(palette.clusterHue(top), 0.1 * lv.blobs))
-          g.addColorStop(1, hsla(palette.clusterHue(top), 0))
-          ctx.fillStyle = g
-          ctx.fillRect(x - r, y - r, r * 2, r * 2)
+        const drawBand = (groups: GroupCluster[], isTop: boolean) => {
+          for (const cluster of groups) {
+            const x = sx(cluster.centroid[0])
+            const y = sy(cluster.centroid[1])
+            const r = cluster.radius * (isTop ? BLOBS.topRadiusFactor : BLOBS.subRadiusFactor) * cam.zoom
+            if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+            if (isTop) {
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs, config))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0, config))
+            } else {
+              g.addColorStop(0, hsla(palette.clusterHue(cluster), 0.28 * lv.blobs, config))
+              g.addColorStop(0.7, hsla(palette.clusterHue(cluster), 0.1 * lv.blobs, config))
+              g.addColorStop(1, hsla(palette.clusterHue(cluster), 0, config))
+            }
+            ctx.fillStyle = g
+            ctx.fillRect(x - r, y - r, r * 2, r * 2)
+          }
         }
-        for (const sub of world.groups) {
-          if (sub.depth !== 1) continue
-          const x = sx(sub.centroid[0])
-          const y = sy(sub.centroid[1])
-          const r = sub.radius * 1.6 * cam.zoom
-          if (r < 2 || x < -r || x > w + r || y < -r || y > h + r) continue
-          const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-          g.addColorStop(0, hsla(palette.clusterHue(sub), 0.28 * lv.blobs))
-          g.addColorStop(0.7, hsla(palette.clusterHue(sub), 0.1 * lv.blobs))
-          g.addColorStop(1, hsla(palette.clusterHue(sub), 0))
-          ctx.fillStyle = g
-          ctx.fillRect(x - r, y - r, r * 2, r * 2)
-        }
+        const bands = groupsByDepth(world)
+        if (bands.length > 0) drawBand(bands[0], true) // bands[0] IS depth 0
+        for (const sub of bands.slice(1)) drawBand(sub, false)
       }
 
       // Cross-domain arcs, zoomed out: edges aggregate into top-level
@@ -205,8 +197,8 @@ export function DotsCanvas() {
           const cy = my + ((x2 - x1) / dist) * dist * EDGES.arcBend * side
           const alpha = (spot ? EDGES.bundleSpotAlpha : 0.4 * (spotlight ? EDGES.dimFactor : 1)) * lv.blobs
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.clusterHue(a), alpha))
-          grad.addColorStop(1, hsla(palette.clusterHue(b), alpha))
+          grad.addColorStop(0, hsla(palette.clusterHue(a), alpha, config))
+          grad.addColorStop(1, hsla(palette.clusterHue(b), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = EDGES.arcWidthBase + EDGES.arcWidthPerEdge * Math.log(count)
           ctx.beginPath()
@@ -221,7 +213,8 @@ export function DotsCanvas() {
       // the camera passes through (m.pass → 1) the walls fade away: you are
       // inside now, and the children own the view.
       if (lv.dots > 0.01) {
-        for (const { node: n, morph: m } of vis()) {
+        for (const { node: n, morph: m, offscreen } of entries) {
+          if (offscreen) continue
           if (!world.childrenByParent.has(n.id)) continue
           if (focus && !focus.nodeIds.has(n.id)) continue
           const wall = m.roomOpen * (1 - m.pass)
@@ -229,14 +222,14 @@ export function DotsCanvas() {
           const dp = focus ? dispOf(n.id) : m.pos
           const x = sx(dp[0])
           const y = sy(dp[1])
-          const r = m.roomR * cam.zoom * roomRadiusEase(m.roomOpen)
+          const r = m.roomR * cam.zoom * roomRadiusEase(m.roomOpen, config)
           if (x < -r || x > w + r || y < -r || y > h + r) continue
           ctx.beginPath()
           ctx.arc(x, y, r, 0, Math.PI * 2)
-          ctx.fillStyle = hsla(palette.nodeHue(n), 0.06 * wall)
+          ctx.fillStyle = hsla(palette.nodeHue(n), 0.06 * wall, config)
           ctx.fill()
           ctx.lineWidth = 1.5
-          ctx.strokeStyle = hsla(palette.nodeHue(n), 0.5 * wall)
+          ctx.strokeStyle = hsla(palette.nodeHue(n), 0.5 * wall, config)
           ctx.stroke()
         }
       }
@@ -245,14 +238,15 @@ export function DotsCanvas() {
       // families huddle (edges collapse); opened rooms show spokes.
       if (lv.dots > 0.25) {
         ctx.lineWidth = 1
-        for (const { node: n, morph: m } of vis()) {
+        for (const { node: n, morph: m, offscreen } of entries) {
+          if (offscreen) continue
           if (!n.parentId) continue
           if (focus && (!focus.nodeIds.has(n.id) || !focus.nodeIds.has(n.parentId))) continue
           const parent = world.nodeById.get(n.parentId)
           if (!parent) continue
           // A visible unplaced child's ancestors are already in the cache;
           // a placed child's parent may not be — compute it on demand.
-          const pm = morph.get(parent.id) ?? morphOf(parent.id)
+          const pm = morphs.get(parent.id) ?? morphOf(parent.id)
           const cdp = focus ? dispOf(n.id) : m.pos
           const pdp = focus ? dispOf(parent.id) : pm.pos
           const dist =
@@ -264,7 +258,7 @@ export function DotsCanvas() {
           const x2 = sx(cdp[0])
           const y2 = sy(cdp[1])
           if ((x1 < -40 && x2 < -40) || (x1 > w + 40 && x2 > w + 40) || (y1 < -40 && y2 < -40) || (y1 > h + 40 && y2 > h + 40)) continue
-          ctx.strokeStyle = hsla(palette.nodeHue(n), alpha)
+          ctx.strokeStyle = hsla(palette.nodeHue(n), alpha, config)
           ctx.beginPath()
           ctx.moveTo(x1, y1)
           ctx.lineTo(x2, y2)
@@ -279,7 +273,7 @@ export function DotsCanvas() {
       // brighter, thicker, and annotated with the relation label at the
       // arc's midpoint.
       if (dotsLv > 0.25 && confirmedEdges.length > 0) {
-        const visIds = new Set(vis().map((v) => v.node.id))
+        const visIds = new Set(entries.map((v) => v.node.id))
         const held: { e: (typeof confirmedEdges)[number]; g: [number, number, number, number, number, number] }[] = []
         for (const e of confirmedEdges) {
           if (focus && !focus.edgeIds.has(e.id)) continue
@@ -307,8 +301,8 @@ export function DotsCanvas() {
           }
           const alpha = 0.55 * (spotlight ? EDGES.dimFactor : 1) * dotsLv
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha))
-          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha))
+          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha, config))
+          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = 1.5
           ctx.beginPath()
@@ -322,8 +316,8 @@ export function DotsCanvas() {
           const nb = world.nodeById.get(e.to)!
           const alpha = EDGES.spotlightAlpha * dotsLv * (focus ? focusK : 1)
           const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha))
-          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha))
+          grad.addColorStop(0, hsla(palette.nodeHue(na), alpha, config))
+          grad.addColorStop(1, hsla(palette.nodeHue(nb), alpha, config))
           ctx.strokeStyle = grad
           ctx.lineWidth = EDGES.spotlightWidth
           ctx.beginPath()
@@ -404,20 +398,12 @@ export function DotsCanvas() {
             ctx.stroke()
           }
         }
-        const drawn = new Set<string>()
-        for (const { node: n } of vis()) {
+        // Entries already include the constellation members the focus ring
+        // pulled in from off-screen (flagged `offscreen`) — one loop covers
+        // visible and gathered nodes alike.
+        for (const { node: n } of entries) {
           if (focus && !focus.nodeIds.has(n.id)) continue
-          drawn.add(n.id)
           drawDot(n, dispOf(n.id))
-        }
-        // Relations whose home is off-screen still join the constellation;
-        // children join the inner ring the same way.
-        if (focus) {
-          for (const id of [...focus.ringIds, ...focus.childIds]) {
-            if (drawn.has(id)) continue
-            const n = world.nodeById.get(id)
-            if (n) drawDot(n, dispOf(id))
-          }
         }
         ctx.globalAlpha = 1
       }
@@ -425,7 +411,7 @@ export function DotsCanvas() {
 
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [adapter, useView, useWorld])
+  }, [adapter, useView, useWorld, frame])
 
   return <canvas ref={ref} className="dots-canvas" />
 }

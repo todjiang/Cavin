@@ -82,6 +82,20 @@ export interface LayoutConfig {
     /** Uniform-grid cell (screen px) for label collision decluttering. */
     declutterCell: number
   }
+  /** Blurred cluster-blob radii on the dots canvas: the top-level band vs
+      every deeper (sub) band. */
+  blobs: {
+    topRadiusFactor: number
+    subRadiusFactor: number
+  }
+  /** Scene cull margins (screen px): how far outside the viewport a layer
+      still evaluates nodes. Dots clip tight; labels need room for chip
+      height; the recenter scan wants a little lookahead. */
+  scene: {
+    dotMargin: number
+    labelMargin: number
+    recenterMargin: number
+  }
   layout: {
     /** Initial scatter: top-level groups evenly on a circle of this radius. */
     topLevelRadius: number
@@ -218,6 +232,15 @@ export const layoutConfig: LayoutConfig = {
     nameplateOpen: 0.45,
     declutterCell: 48,
   },
+  blobs: {
+    topRadiusFactor: 1.15,
+    subRadiusFactor: 1.6,
+  },
+  scene: {
+    dotMargin: 8,
+    labelMargin: 60,
+    recenterMargin: 40,
+  },
   layout: {
     topLevelRadius: 1500,
     groupSpreadMin: 250,
@@ -293,5 +316,5 @@ export function mergeConfig(base: LayoutConfig, overrides: DeepPartial<LayoutCon
 }
 
 export type DeepPartial<T> = {
-  [K in keyof T]: T[K] extends object ? DeepPartial<T[K]> : T[K]
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
 }

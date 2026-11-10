@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { CavinNode } from './types'
-import { deriveWorld, groupPathKey, reparentNodes } from './layout'
+import { deriveWorld } from './layout'
+import { groupPathKey } from './clusters'
+import { reparentNodes } from './mutations'
 import { makeNode, testAdapter } from './test-helpers'
 
 /**

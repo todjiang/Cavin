@@ -9,46 +9,39 @@ export * from './types'
 export type { FieldDescriptor, SchemaAdapter } from './adapter'
 export type { LayoutConfig, DeepPartial } from './config'
 export { layoutConfig, mergeConfig } from './config'
-export { defaultHue, hsl, hsla, hueFromColor, withAlpha } from './colors'
+export { hsla } from './colors'
 export type { CavinEdge, WorldEdge } from './edges'
-export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges } from './edges'
-export {
-  groupPathKey,
-  layoutNodes,
-  deriveWorld,
-  nodeColorIndex,
-  focusForSelection,
-  deletableSubtree,
-  movableSubtree,
-  reparentNodes,
-  promoteToRootNodes,
-  smoothstep,
-  timeFactor,
-  DAY_MS,
-} from './layout'
+export { edgePairKey, indexEdgesByNode, mergeEdges, suggestEdges, validateEdgeRecords } from './edges'
+export { subtree, subtreeFrom, deepestDepth, leafGroups, nearestGroup, groupsByDepth, orderParentsFirst } from './tree'
+export type { SubtreeOptions } from './tree'
+export { groupPathKey, nodeColorIndex } from './clusters'
+export { smoothstep, timeFactor } from './math'
+export { focusForSelection } from './selection'
+export { layoutNodes, deriveWorld } from './layout'
 export {
   lodLevels,
+  clusterLevels,
   chipOpacity,
   revealZoom,
-  zoomGate,
-  focusFalloff,
   roomRadius,
-  roomSlot,
   roomRadiusEase,
   focusRingTargets,
   roomMorph,
   visibleNodes,
 } from './lod'
 export type { LodLevels, RoomMorph, VisibleEntry } from './lod'
+export type { Viewport, Scene, SceneEntry, SceneParams } from './scene'
+export { deriveScene } from './scene'
 export type { Command, MutationNotice, MutationResult } from './commands'
-export { applyCommand, applyDragFrame, newId } from './commands'
-export type { CavinStorage } from './storage'
+export { applyCommand } from './commands'
+export type { CavinStorage, WorldSnapshot } from './storage'
 export { createMemoryCavinStorage, validateRecords } from './storage'
 export {
   labelOf,
   searchTextOf,
   tagsOf,
   bodyOf,
+  fieldValueOf,
   timeFieldOf,
   timeOf,
   timeRangeOf,

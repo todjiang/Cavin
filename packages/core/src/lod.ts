@@ -1,60 +1,87 @@
 import type { Camera, CavinNode, SelectionFocus, World } from './types'
-import { smoothstep } from './layout'
+import type { LayoutConfig } from './config'
 import { layoutConfig } from './config'
+import { smoothstep } from './math'
 
-const { lod: LOD, room: ROOM, labels: LABELS, focus: FOCUS } = layoutConfig/**
+/**
  * Zoom → band opacities. Node dots are the permanent node form: once they
  * fade in near the room band they stay fully visible at every deeper zoom.
- * Room/wing cluster labels still hand off to each other, and node labels
- * (chipOpacity) fade in once and never leave.
+ * Cluster labels hand off from the top-level band to the sub-level bands as
+ * you zoom in; node labels (chipOpacity) fade in once and never leave.
+ *
+ * Every function takes the resolved LayoutConfig (default: the global
+ * defaults) so a per-instance `CavinCanvas config={…}` override reaches the
+ * room morph, the LOD ramps and the focus ring — not just the derive.
  */
 export interface LodLevels {
-  /** Room name labels (yield to node labels at close zoom). */
-  rooms: number
-  /** Wing name labels (dominate zoomed out). */
-  wings: number
   /** Blurred cluster blobs on the dots canvas. */
   blobs: number
   /** Node dots — permanent once revealed. */
   dots: number
 }
 
+/**
+ * Cluster-label band opacity, one ramp per grouping depth. Depth 0 (the top
+ * level) dominates zoomed out and yields to the sub bands as rooms open;
+ * depths ≥ 1 share the sub-band ramp, which yields to full cards at close
+ * zoom. A depth-generic host therefore gets one live band per level present
+ * in the data instead of exactly two.
+ */
+export function clusterLevels(depth: number, zoom: number, zRooms: number, zCards: number): number {
+  if (depth <= 0) return 1 - smoothstep(zRooms * 0.9, zRooms * 1.4, zoom)
+  return (
+    smoothstep(zRooms * 0.8, zRooms, zoom) *
+    (1 - smoothstep(zCards * 0.85, zCards * 1.1, zoom))
+  )
+}
+
 export function lodLevels(zoom: number, zRooms: number, zCards: number): LodLevels {
   return {
-    rooms:
-      smoothstep(zRooms * 0.8, zRooms, zoom) * (1 - smoothstep(zCards * 0.85, zCards * 1.1, zoom)),
-    wings: 1 - smoothstep(zRooms * 0.9, zRooms * 1.4, zoom),
     blobs: 1 - smoothstep(zRooms * 1.2, zCards * 1.1, zoom),
     dots: smoothstep(zRooms * 0.6, zRooms * 1.1, zoom),
   }
 }
 
-export const MAX_CHIPS = LABELS.maxChips
-
 /** Node-label band opacity: fades in with the room labels, never fades out. */
-export function chipOpacity(zoom: number, zRooms: number): number {
-  return smoothstep(zRooms * LOD.chipFadeStart, zRooms * LOD.chipFadeFull, zoom)
+export function chipOpacity(
+  zoom: number,
+  zRooms: number,
+  config: LayoutConfig = layoutConfig,
+): number {
+  return smoothstep(zRooms * config.lod.chipFadeStart, zRooms * config.lod.chipFadeFull, zoom)
 }
 
 /**
  * Depth→zoom mapping: zoom becomes the granularity axis. Deeper tree levels
  * require proportionally more zoom to reveal, but the exponent saturates at
- * depth 6 so arbitrarily deep chains stay reachable within MAX_ZOOM — walking
- * into deeper levels happens spatially (rooms nested in rooms), not by
- * zooming forever.
+ * depth 6 so arbitrarily deep chains stay reachable within the camera's
+ * maxZoom — walking into deeper levels happens spatially (rooms nested in
+ * rooms), not by zooming forever.
  */
-export function revealZoom(depth: number, zCards: number): number {
+export function revealZoom(
+  depth: number,
+  zCards: number,
+  config: LayoutConfig = layoutConfig,
+): number {
   return (
     zCards *
-    LOD.revealBase *
-    Math.pow(LOD.revealExponent, Math.min(LOD.revealSaturateDepth - 1, Math.max(0, depth - 1)))
+    config.lod.revealBase *
+    Math.pow(
+      config.lod.revealExponent,
+      Math.min(config.lod.revealSaturateDepth - 1, Math.max(0, depth - 1)),
+    )
   )
 }
 
 /** Continuous 0..1 gate for a child depth at the current zoom. */
-export function zoomGate(depth: number, zoom: number, zCards: number): number {
-  const lo = revealZoom(depth, zCards)
-  return smoothstep(lo, lo * LOD.gateRamp, zoom)
+export function zoomGate(
+  depth: number,
+  zoom: number,
+  zCards: number,
+  config: LayoutConfig = layoutConfig,
+): number {
+  const lo = revealZoom(depth, zCards, config)
+  return smoothstep(lo, lo * config.lod.gateRamp, zoom)
 }
 
 /**
@@ -62,10 +89,8 @@ export function zoomGate(depth: number, zoom: number, zCards: number): number {
  * distant ones stay shut. Kept tight on purpose — when every visible family
  * opened at once the screen turned into bubble soup; opening IS focusing.
  */
-const FOCUS_R = LOD.focusRadius // screen px radius of the "focused" region
-
-export function focusFalloff(screenD2: number): number {
-  const r = FOCUS_R
+export function focusFalloff(screenD2: number, config: LayoutConfig = layoutConfig): number {
+  const r = config.lod.focusRadius // screen px radius of the "focused" region
   const r2 = r * r
   if (screenD2 <= r2) return 1
   const outer = r * 1.6
@@ -102,16 +127,18 @@ function lerp2(a: [number, number], b: [number, number], k: number): [number, nu
 }
 
 /** Room radius in world units; the screen radius stays constant (~110px+). */
-export function roomRadius(childCount: number, zoom: number): number {
-  return Math.max(ROOM.radiusMin, ROOM.radiusPerChild * Math.sqrt(childCount)) / zoom
+export function roomRadius(
+  childCount: number,
+  zoom: number,
+  config: LayoutConfig = layoutConfig,
+): number {
+  return (
+    Math.max(config.room.radiusMin, config.room.radiusPerChild * Math.sqrt(childCount)) / zoom
+  )
 }
 
-/** Pass-through: past `revealZoom × PASS_START` the camera enters the room;
-    by `× PASS_FULL` the boundary has faded and the contents own the view. */
-const PASS_START = ROOM.passStart
-const PASS_FULL = ROOM.passFull
-/** Screen-radius growth while passing through (~3.2× → children fill the view). */
-const PASS_GROW = ROOM.passGrow
+/** Pass-through: past `revealZoom × passStart` the camera enters the room;
+    by `× passFull` the boundary has faded and the contents own the view. */
 
 /**
  * A child's slot inside its parent's room: on a ring at 62% of the room
@@ -124,9 +151,10 @@ export function roomSlot(
   center: [number, number],
   roomR: number,
   jitter = 0,
+  config: LayoutConfig = layoutConfig,
 ): [number, number] {
   const angle = (index / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2 + jitter
-  const r = roomR * ROOM.ringFraction
+  const r = roomR * config.room.ringFraction
   return [center[0] + Math.cos(angle) * r, center[1] + Math.sin(angle) * r]
 }
 
@@ -139,8 +167,11 @@ function slotJitter(id: string, count: number): number {
 }
 
 /** Eased drawn radius factor as a room opens (starts small, grows to full). */
-export function roomRadiusEase(roomOpen: number): number {
-  return ROOM.radiusEaseMin + (1 - ROOM.radiusEaseMin) * roomOpen
+export function roomRadiusEase(
+  roomOpen: number,
+  config: LayoutConfig = layoutConfig,
+): number {
+  return config.room.radiusEaseMin + (1 - config.room.radiusEaseMin) * roomOpen
 }
 
 /**
@@ -159,6 +190,7 @@ export function focusRingTargets(
   focus: SelectionFocus,
   center: [number, number],
   zoom: number,
+  config: LayoutConfig = layoutConfig,
 ): Map<string, [number, number]> {
   // Neighbors grouped by their top-level group so related domains sit
   // adjacent on the ring, hubs first within a group. Group order follows
@@ -178,14 +210,14 @@ export function focusRingTargets(
   const layOutRing = (list: string[], minRadiusPx: number) => {
     const n = list.length
     if (n === 0) return
-    const r = Math.max(minRadiusPx, (n * FOCUS.ringPerNodePx) / (2 * Math.PI)) / zoom
+    const r = Math.max(minRadiusPx, (n * config.focus.ringPerNodePx) / (2 * Math.PI)) / zoom
     list.forEach((id, i) => {
       const a = (i / n) * Math.PI * 2 - Math.PI / 2
       out.set(id, [center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r])
     })
   }
-  layOutRing(focus.childIds, FOCUS.innerRingPx)
-  layOutRing(ids, FOCUS.ringRadiusPx)
+  layOutRing(focus.childIds, config.focus.innerRingPx)
+  layOutRing(ids, config.focus.ringRadiusPx)
   return out
 }
 
@@ -210,6 +242,7 @@ export function roomMorph(
   cam: Camera,
   zCards: number,
   cache: Map<string, RoomMorph>,
+  config: LayoutConfig = layoutConfig,
 ): RoomMorph {
   const hit = cache.get(node.id)
   if (hit) return hit
@@ -225,10 +258,17 @@ export function roomMorph(
       pos = node.position
       open = 1
     } else {
-      const p = roomMorph(world, parent, zoom, cam, zCards, cache)
+      const p = roomMorph(world, parent, zoom, cam, zCards, cache, config)
       const siblings = world.childrenByParent.get(node.parentId) ?? [node]
       const idx = Math.max(0, siblings.findIndex((s) => s.id === node.id))
-      const slot = roomSlot(idx, siblings.length, p.pos, p.roomR, slotJitter(node.id, siblings.length))
+      const slot = roomSlot(
+        idx,
+        siblings.length,
+        p.pos,
+        p.roomR,
+        slotJitter(node.id, siblings.length),
+        config,
+      )
       pos = lerp2(node.position, slot, p.roomOpen)
       open = p.open * p.roomOpen
     }
@@ -240,13 +280,13 @@ export function roomMorph(
   let roomR = 0
   let pass = 0
   if (kidCount > 0) {
-    const lo = revealZoom(depth + 1, zCards)
+    const lo = revealZoom(depth + 1, zCards, config)
     const dx = pos[0] - cam.x
     const dy = pos[1] - cam.y
-    const focus = focusFalloff((dx * dx + dy * dy) * zoom * zoom)
-    roomOpen = zoomGate(depth + 1, zoom, zCards) * focus
-    pass = smoothstep(lo * PASS_START, lo * PASS_FULL, zoom) * focus
-    roomR = roomRadius(kidCount, zoom) * (1 + PASS_GROW * pass)
+    const focus = focusFalloff((dx * dx + dy * dy) * zoom * zoom, config)
+    roomOpen = zoomGate(depth + 1, zoom, zCards, config) * focus
+    pass = smoothstep(lo * config.room.passStart, lo * config.room.passFull, zoom) * focus
+    roomR = roomRadius(kidCount, zoom, config) * (1 + config.room.passGrow * pass)
   }
 
   const res: RoomMorph = { pos, open, roomOpen, roomR, pass }
@@ -285,6 +325,7 @@ export function visibleNodes(
   zCards: number,
   margin: number,
   morph: Map<string, RoomMorph> = new Map(),
+  config: LayoutConfig = layoutConfig,
 ): VisibleEntry[] {
   const zoom = cam.zoom
   const out: VisibleEntry[] = []
@@ -292,7 +333,7 @@ export function visibleNodes(
   const walk = (node: CavinNode, include: boolean) => {
     const independent = !node.parentId || node.state.placed
     if (!include && !independent) return
-    const m = roomMorph(world, node, zoom, cam, zCards, morph)
+    const m = roomMorph(world, node, zoom, cam, zCards, morph, config)
     const sx = w / 2 + (m.pos[0] - cam.x) * zoom
     const sy = h / 2 + (m.pos[1] - cam.y) * zoom
     // Children live at most roomR away from the node (ring when the room

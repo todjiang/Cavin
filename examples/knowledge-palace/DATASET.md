@@ -1,4 +1,4 @@
-# machine-learning — the built-in default dataset
+# The built-in default dataset (src/generate.ts)
 
 The original Cavin demo palace, and the dataset the app boots when
 localStorage is empty. Not a static file: `generate.ts` procedurally

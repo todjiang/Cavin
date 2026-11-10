@@ -11,7 +11,7 @@
     "./testing": "./src/testing.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "rm -rf dist && tsc -p tsconfig.json"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

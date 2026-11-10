@@ -15,7 +15,6 @@ export interface TaskAttrs {
 export const taskAdapter: SchemaAdapter<TaskAttrs> = {
   noun: 'task',
 
-  groupOf: () => [],
   labelOf: (n) => (n.attributes.done ? '☑ ' : '☐ ') + n.attributes.title,
 
   fields: [

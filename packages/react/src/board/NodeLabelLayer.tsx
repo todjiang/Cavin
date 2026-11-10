@@ -3,43 +3,28 @@ import type { CavinNode } from '@cavin/core'
 import {
   bodyOf,
   chipOpacity,
-  focusRingTargets,
-  focusForSelection,
   labelOf,
-  layoutConfig,
   roomMorph,
   roomRadius,
   roomRadiusEase,
-  smoothstep,
+  subtree,
   tagsOf,
   timeOf,
-  visibleNodes,
 } from '@cavin/core'
-import type { RoomMorph } from '@cavin/core'
+import type { LayoutConfig } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
 
-const { labels: LABELS, interaction: INTERACT, focus: FOCUS } = layoutConfig
-
-/** Click vs drag: pointer must travel this many screen px to become a drag. */
-const DRAG_THRESHOLD = INTERACT.dragThreshold
-/** Drop-target snap radius (screen px): within this of another node's dot,
-    releasing the drag re-parents instead of free-placing. */
-const DROP_RADIUS = INTERACT.dropRadius
-const CHIP_H = LABELS.chipHeight
-const CHIP_MAX_W = LABELS.chipMaxWidth
-/** A parent's label becomes the room's nameplate once its room is this open. */
-const NAMEPLATE_OPEN = LABELS.nameplateOpen
-/** Child/room chips keep their configured offset from the base font size,
-    which the HUD font slider can move at runtime. */
-const CHILD_FONT_DELTA = LABELS.fontSize - LABELS.childFontSize
-const ROOM_FONT_DELTA = LABELS.roomFontSize - LABELS.fontSize
-
-function estimateWidth(title: string, kids: number, fontScale = 1): number {
+function estimateWidth(
+  title: string,
+  kids: number,
+  labels: LayoutConfig['labels'],
+  fontScale = 1,
+): number {
   return Math.min(
-    CHIP_MAX_W,
-    LABELS.chipBaseWidth + title.length * LABELS.chipCharWidth * fontScale +
-      (kids > 0 ? LABELS.chipKidsWidth : 0),
+    labels.chipMaxWidth,
+    labels.chipBaseWidth + title.length * labels.chipCharWidth * fontScale +
+      (kids > 0 ? labels.chipKidsWidth : 0),
   )
 }
 
@@ -85,14 +70,29 @@ interface Label<TAttr> {
  * a minimal content peek.
  */
 export function NodeLabelLayer() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, frame } = useCavin()
   const layerRef = useRef<HTMLDivElement>(null)
+  // Per-instance tuning aliases (from the resolved config, not the module
+  // defaults) — used by the paint loop and the pointer handlers below.
+  const { labels: LABELS, interaction: INTERACT } = config
+  /** Click vs drag: pointer must travel this many screen px to become a drag. */
+  const DRAG_THRESHOLD = INTERACT.dragThreshold
+  /** Drop-target snap radius (screen px): within this of another node's dot,
+      releasing the drag re-parents instead of free-placing. */
+  const DROP_RADIUS = INTERACT.dropRadius
+  const CHIP_H = LABELS.chipHeight
+  /** A parent's label becomes the room's nameplate once its room is this open. */
+  const NAMEPLATE_OPEN = LABELS.nameplateOpen
+  /** Child/room chips keep their configured offset from the base font size,
+      which the HUD font slider can move at runtime. */
+  const CHILD_FONT_DELTA = LABELS.fontSize - LABELS.childFontSize
+  const ROOM_FONT_DELTA = LABELS.roomFontSize - LABELS.fontSize
 
   useEffect(() => {
     const layer = layerRef.current!
     const noun = adapter.noun
     const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
-    const paletteOf = paletteMemo(adapter)
+    const paletteOf = paletteMemo(adapter, config)
 
     // Imperative hover-preview bubble (label + body + tags), built once.
     const preview = document.createElement('div')
@@ -112,9 +112,6 @@ export function NodeLabelLayer() {
     const sigById = new Map<string, string>()
     let hoverId: string | null = null
     let previewFilled: string | null = null
-    // Constellation gather animation, mirrors DotsCanvas: eases 0→1 while a
-    // focus is active so relation labels fly in with their dots.
-    let focusBlend = 0
 
     const drag = {
       pointerId: 0,
@@ -154,19 +151,19 @@ export function NodeLabelLayer() {
       const { cam, zRooms, zCards, timeT, selectedId, labelFont } = useView.getState()
       const world = useWorld.getState().world
       const palette = paletteOf(world)
-      const focus = focusForSelection(world, selectedId)
       // Collision boxes scale with the runtime font size so bigger chips
       // don't overlap before the declutter sees them.
       const fontScale = labelFont / LABELS.fontSize
       const chipH = CHIP_H * fontScale
-      if (!focus) focusBlend = 0
-      else focusBlend = Math.min(1, focusBlend + (1 - focusBlend) * FOCUS.blendRate)
-      const focusK = smoothstep(0, 1, focusBlend)
+      // Board owns the viewport and advances the focus blend each frame;
+      // this layer just reads the derived scene (same one DotsCanvas paints).
+      const vp = frame.getViewport()
+      const { w, h } = vp
+      const scene = frame.scene(world, cam, zCards, selectedId, vp, config.scene.labelMargin)
+      const { entries, focus, focusK, ringTargets, morphs } = scene
       // Focus mode overrides the zoom gate: the constellation's names stay
       // readable even zoomed all the way out.
-      const band = focus ? Math.max(chipOpacity(cam.zoom, zRooms), focusK) : chipOpacity(cam.zoom, zRooms)
-      const w = window.innerWidth
-      const h = window.innerHeight
+      const band = focus ? Math.max(chipOpacity(cam.zoom, zRooms, config), focusK) : chipOpacity(cam.zoom, zRooms, config)
 
       if (band < 0.02) {
         for (const el of elById.values()) el.remove()
@@ -200,42 +197,36 @@ export function NodeLabelLayer() {
         }
       }
 
-      // Candidates at room-morph positions, culled by where they DISPLAY —
-      // subtrees hidden inside closed off-screen rooms are never visited.
-      // In focus mode the spotlight set is the whole guest list: everyone
-      // else's name leaves the screen.
-      const morph = new Map<string, RoomMorph>()
-      const ringTargets = focus
-        ? focusRingTargets(
-            world,
-            focus,
-            roomMorph(world, world.nodeById.get(focus.id)!, cam.zoom, cam, zCards, morph).pos,
-            cam.zoom,
-          )
-        : null
-      const dispOf = (id: string, m?: RoomMorph): [number, number] => {
-        const base = (m ?? roomMorph(world, world.nodeById.get(id)!, cam.zoom, cam, zCards, morph)).pos
-        const t = ringTargets?.get(id)
+      // Candidates come from the frame's scene: culled by where they DISPLAY,
+      // screen positions ready, constellation members pulled in from
+      // off-screen flagged on their entries. In focus mode the spotlight set
+      // is the whole guest list: everyone else's name leaves the screen.
+      const morphOf = (id: string) =>
+        roomMorph(world, world.nodeById.get(id)!, cam.zoom, cam, zCards, morphs, config)
+      const dispOf = (id: string, m?: (typeof entries)[number]['morph']): [number, number] => {
+        const base = (m ?? morphOf(id)).pos
+        const t = ringTargets.get(id)
         if (!t) return base
         return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
       }
       const candidates: Label<unknown>[] = []
-      for (const { node: n, morph: m } of visibleNodes(world, cam, w, h, zCards, 60, morph)) {
+      for (const e of entries) {
+        const n = e.node
+        const m = e.morph
         if (focus && !focus.nodeIds.has(n.id)) continue
         const isChild = !!n.parentId && !n.state.placed
         let open = 1
-        if (isChild) {
+        if (isChild && !e.offscreen) {
           open = m.open
           // Focus members always keep their name — the selected node's
           // children gather on the inner ring even while their home room
           // is closed at this zoom.
           if (!focus && open < 0.05 && n.id !== selectedId) continue
-          if (focus) open = 1
         }
+        if (focus) open = 1
 
         const pos = dispOf(n.id, m)
-        const sx = w / 2 + (pos[0] - cam.x) * cam.zoom
-        const sy = h / 2 + (pos[1] - cam.y) * cam.zoom
+        const [sx, sy] = scene.project(pos[0], pos[1])
         const passing = m.pass > 0.5
         // No room nameplates in focus mode — every member's chip hugs its
         // displayed dot instead of riding a room boundary it has left.
@@ -247,40 +238,12 @@ export function NodeLabelLayer() {
           // radius, so early pass-through (circle growing + fading) doesn't
           // drag the label upward with it.
           const kidCount = world.childrenByParent.get(n.id)?.length ?? 0
-          ay = sy - roomRadius(kidCount, cam.zoom) * cam.zoom * roomRadiusEase(m.roomOpen) - 8
+          ay = sy - roomRadius(kidCount, cam.zoom, config) * cam.zoom * roomRadiusEase(m.roomOpen, config) - 8
         } else if (isChild) {
           place = 'below'
           ay = sy + 12
         }
         candidates.push({ node: n, sx, sy, ax: sx, ay, place, open, room, mpos: pos, pass: m.pass })
-      }
-      // Relations whose home is off-screen still join the constellation:
-      // they never pass through visibleNodes, so add them explicitly.
-      // Children on the inner ring likewise (children hang their name
-      // BELOW the dot, like everywhere else).
-      if (focus) {
-        const have = new Set(candidates.map((c) => c.node.id))
-        for (const id of [...focus.ringIds, ...focus.childIds]) {
-          if (have.has(id)) continue
-          const n = world.nodeById.get(id)
-          if (!n) continue
-          const pos = dispOf(id)
-          const sx = w / 2 + (pos[0] - cam.x) * cam.zoom
-          const sy = h / 2 + (pos[1] - cam.y) * cam.zoom
-          const isChild = focus.childIds.includes(id)
-          candidates.push({
-            node: n,
-            sx,
-            sy,
-            ax: sx,
-            ay: isChild ? sy + 12 : sy - 12,
-            place: isChild ? 'below' : 'above',
-            open: 1,
-            room: false,
-            mpos: pos,
-            pass: 0,
-          })
-        }
       }
       // Deepest passed-through room owns the viewport: its label becomes the
       // header at the top edge; other passed ancestors' chips are context and
@@ -318,7 +281,7 @@ export function NodeLabelLayer() {
 
       const box = (l: Label<unknown>): Placed => {
         const kids = world.childrenByParent.get(l.node.id)?.length ?? 0
-        const cw = estimateWidth(labelOf(adapter, l.node), kids, fontScale)
+        const cw = estimateWidth(labelOf(adapter, l.node), kids, LABELS, fontScale)
         if (l.place === 'below') {
           return { x0: l.ax - cw / 2 - 2, y0: l.ay - 2, x1: l.ax + cw / 2 + 2, y1: l.ay + chipH + 2 }
         }
@@ -433,8 +396,7 @@ export function NodeLabelLayer() {
               }),
             )
           }
-          const sx = w / 2 + (pos[0] - cam.x) * cam.zoom
-          const sy = h / 2 + (pos[1] - cam.y) * cam.zoom
+          const [sx, sy] = scene.project(pos[0], pos[1])
           preview.style.left = `${Math.min(sx + 18, w - 260)}px`
           preview.style.top = `${Math.max(8, Math.min(sy - 40, h - 240))}px`
           preview.style.borderColor = palette.nodeColor(n)
@@ -480,21 +442,21 @@ export function NodeLabelLayer() {
         actually see (folded children huddling inside a closed room must not
         catch drops meant for the visible label on top of them). */
     const hitTestDropTarget = (clientX: number, clientY: number): string | null => {
-      const { cam, zCards } = useView.getState()
+      const { cam, zCards, selectedId } = useView.getState()
       const world = useWorld.getState().world
-      const w = window.innerWidth
-      const h = window.innerHeight
-      const morph = new Map<string, RoomMorph>()
+      // The frame's scene already holds this frame's morphs at display
+      // positions — the label margin culls a bit wider than the drop radius
+      // so edge-adjacent targets survive the visibility walk.
+      const sc = frame.scene(world, cam, zCards, selectedId, frame.getViewport(), config.scene.labelMargin)
+      const { w, h } = frame.getViewport()
       let bestLabeled: string | null = null
       let bestLabeledD = DROP_RADIUS
       let bestAny: string | null = null
       let bestAnyD = DROP_RADIUS
-      for (const n of world.nodes) {
+      for (const { node: n, morph: m } of sc.entries) {
         if (n.id === drag.nodeId || n.state.locked || drag.descendants?.has(n.id)) continue
-        const m = roomMorph(world, n, cam.zoom, cam, zCards, morph)
         if (n.parentId && !n.state.placed && m.open < 0.3) continue // folded away — invisible
-        const sx = w / 2 + (m.pos[0] - cam.x) * cam.zoom
-        const sy = h / 2 + (m.pos[1] - cam.y) * cam.zoom
+        const [sx, sy] = sc.project(m.pos[0], m.pos[1])
         if (sx < -DROP_RADIUS || sx > w + DROP_RADIUS || sy < -DROP_RADIUS || sy > h + DROP_RADIUS)
           continue
         const d = Math.hypot(sx - clientX, sy - clientY)
@@ -532,19 +494,8 @@ export function NodeLabelLayer() {
         drag.dragging = true
         drag.moved = true
         // Snapshot the subtree once: descendants can never be drop targets.
-        const world = useWorld.getState().world
-        const desc = new Set<string>()
-        const stack = [drag.nodeId]
-        while (stack.length) {
-          const cur = stack.pop()!
-          for (const c of world.childrenByParent.get(cur) ?? []) {
-            if (!desc.has(c.id)) {
-              desc.add(c.id)
-              stack.push(c.id)
-            }
-          }
-        }
-        drag.descendants = desc
+        // Same traversal the move command uses — locked branches stay.
+        drag.descendants = subtree(useWorld.getState().world, drag.nodeId)
       }
       const zoom = useView.getState().cam.zoom
       drag.pos = [drag.pos[0] + (e.clientX - drag.lastX) / zoom, drag.pos[1] + (e.clientY - drag.lastY) / zoom]
@@ -633,7 +584,7 @@ export function NodeLabelLayer() {
       for (const el of elById.values()) el.remove()
       preview.remove()
     }
-  }, [adapter, useView, useWorld])
+  }, [adapter, useView, useWorld, frame])
 
   return <div ref={layerRef} className="chip-layer" />
 }

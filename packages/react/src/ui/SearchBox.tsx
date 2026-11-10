@@ -1,33 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { bodyOf, labelOf, tagsOf, timeOf } from '@cavin/core'
+import { bodyOf, labelOf, searchTextOf, tagsOf, timeOf } from '@cavin/core'
 import type { CavinNode } from '@cavin/core'
 import { useCavin } from '../context'
+import { resolveHotkey } from '../keymap'
 import { buildPalette } from '../presentation'
 
 const MAX_RESULTS = 8
 
 /**
- * Search-to-fly: substring match via the adapter's own scoring order
- * (label prefix > label > tags > body), recency tiebreak on the adapter's
- * time axis when present. `/` or Cmd/Ctrl+K focuses, ESC blurs, arrows
- * navigate, Enter/click flies the camera to the node and opens its detail
- * panel. `?q=` URL param pre-opens with a query (previewing).
+ * Search-to-fly: substring match scored over the adapter's search text
+ * (label prefix > text substring > tags > body), recency tiebreak on the
+ * adapter's time axis when present. `/` or Cmd/Ctrl+K focuses, ESC blurs,
+ * arrows navigate, Enter/click flies the camera to the node and opens its
+ * detail panel. `?q=` URL param pre-opens with a query (previewing).
  */
 export function SearchBox() {
-  const { adapter, view: useView, world: useWorld } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, keymap } = useCavin()
   const select = useView((s) => s.select)
   const world = useWorld((s) => s.world)
-  const palette = useMemo(() => buildPalette(adapter, world), [adapter, world])
+  const palette = useMemo(() => buildPalette(adapter, world, config), [adapter, world, config])
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).has('q'))
   const [active, setActive] = useState(0)
 
-  /** Ranking mirrors the field descriptors: label prefix > label > tags > body. */
+  /** Ranking: the adapter's search text (label by default) prefix >
+      substring > tags > body, mirroring the field descriptors. */
   const score = (node: CavinNode, q: string): number => {
-    const label = labelOf(adapter, node).toLowerCase()
-    if (label.startsWith(q)) return 4
-    if (label.includes(q)) return 3
+    const text = searchTextOf(adapter, node).toLowerCase()
+    if (text.startsWith(q)) return 4
+    if (text.includes(q)) return 3
     if (tagsOf(adapter, node).some((t) => t.toLowerCase().includes(q))) return 2
     if (bodyOf(adapter, node).toLowerCase().includes(q)) return 1
     return 0
@@ -63,20 +65,19 @@ export function SearchBox() {
     setActive(0)
   }, [query])
 
-  // Global hotkeys.
+  // Global hotkeys: the shared policy (keymap.ts) — '/' focuses search when
+  // not typing, Cmd/Ctrl+K anywhere. Guards live in one module now.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const inInput = (e.target as HTMLElement)?.tagName === 'INPUT'
-      if ((e.key === '/' && !inInput) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
-        e.preventDefault()
-        inputRef.current?.focus()
-        inputRef.current?.select()
-        setOpen(true)
-      }
+      if (resolveHotkey(keymap, e) !== 'focus-search') return
+      e.preventDefault()
+      inputRef.current?.focus()
+      inputRef.current?.select()
+      setOpen(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [keymap])
 
   const go = (node: CavinNode) => {
     select(node.id) // Board eases the camera to the node and DetailPanel opens

@@ -1,15 +1,10 @@
 import { layoutConfig } from './config'
 import type { LayoutConfig } from './config'
 import type { SchemaAdapter } from './adapter'
-import type { CavinNode, GroupCluster, TreeMutationError, World } from './types'
+import type { CavinNode, TreeMutationError, World } from './types'
 import type { CavinEdge } from './edges'
-import {
-  deletableSubtree,
-  deriveWorld,
-  movableSubtree,
-  promoteToRootNodes,
-  reparentNodes,
-} from './layout'
+import { deriveWorld, promoteToRootNodes, reparentNodes } from './layout'
+import { nearestGroup, subtree } from './tree'
 
 /**
  * The command layer: every structural edit is one serializable command
@@ -67,40 +62,19 @@ export interface MutationResult<TAttr = unknown> {
   error?: TreeMutationError
   /** The derived world after the command. Absent only for silent no-ops. */
   world?: World<TAttr>
-  /** Updated confirmed-edge list — only when the command changed it. */
-  edges?: CavinEdge[]
   notice?: MutationNotice
   /** For add / addChild: the id of the created node (selection + editor). */
   createdId?: string
 }
 
-let idSeq = 0
-/** Framework-generated node ids. Hosts may bring their own on import. */
-export function newId(): string {
-  idSeq = (idSeq + 1) % Number.MAX_SAFE_INTEGER
-  return `n-${Date.now().toString(36)}-${idSeq.toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`
-}
-
-/** Nearest cluster at the deepest grouping level present — where a new root
-    lands. `null` when the world has no groups (ungrouped data). */
-function nearestLeafGroup<TAttr>(
-  world: World<TAttr>,
-  at: [number, number],
-): GroupCluster | null {
-  let maxDepth = -1
-  for (const g of world.groups) if (g.depth > maxDepth) maxDepth = g.depth
-  if (maxDepth < 0) return null
-  let best: GroupCluster | null = null
-  let bestD = Infinity
-  for (const g of world.groups) {
-    if (g.depth !== maxDepth) continue
-    const d = Math.hypot(g.centroid[0] - at[0], g.centroid[1] - at[1])
-    if (d < bestD) {
-      bestD = d
-      best = g
-    }
-  }
-  return best
+/** Framework-generated node ids. Hosts may bring their own on import.
+    `rand` is injectable so a full command replay (the same rand the caller
+    hands applyCommand) can make id generation deterministic — no
+    module-global counter, the last singleton. */
+export function newId(rand: () => number = Math.random): string {
+  const a = Math.floor(rand() * 1e9).toString(36)
+  const b = Math.floor(rand() * 1e9).toString(36)
+  return `n-${Date.now().toString(36)}-${a}-${b}`
 }
 
 function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefined {
@@ -109,55 +83,38 @@ function node<TAttr>(world: World<TAttr>, id: string): CavinNode<TAttr> | undefi
 
 /**
  * Frame-coalesced drag: pointermove can exceed 60Hz, but a drag's position
- * update only needs to land once per frame. Buffers the latest target into
- * a positional patch of the movable subtree — no re-derive. Returns null
- * when there is nothing to do (unknown/unplaced node, zero delta).
+ * update only needs to land once per frame. The store buffers the latest
+ * target and dispatches one `move` command per frame.
+ *
+ * The move command always re-derives. That is affordable because the O(n²)
+ * suggestion sweep no longer lives in deriveWorld — every index
+ * (childrenByParent, groups, edges) rebuilds from the same node array, so
+ * no World value can carry a stale view of a dragged node.
  */
-export function applyDragFrame<TAttr>(
-  world: World<TAttr>,
-  id: string,
-  pos: [number, number],
-): World<TAttr> | null {
-  const n = node(world, id)
-  if (!n || !n.state.placed) return null
-  const delta: [number, number] = [pos[0] - n.position[0], pos[1] - n.position[1]]
-  if (delta[0] === 0 && delta[1] === 0) return null
-  const movable = movableSubtree(world, id)
-  const patched = world.nodes.map((m) => {
-    if (m.id === id) return { ...m, position: pos }
-    if (movable.has(m.id)) {
-      return {
-        ...m,
-        position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
-      }
-    }
-    return m
-  })
-  return {
-    ...world,
-    nodes: patched,
-    nodeById: new Map(patched.map((m) => [m.id, m])),
-  }
-}
-
 export function applyCommand<TAttr>(
   world: World<TAttr>,
   cmd: Command<TAttr>,
   adapter: SchemaAdapter<TAttr>,
   config: LayoutConfig = layoutConfig,
   rand: () => number = Math.random,
+  /** Caller-owned machine suggestions for the next world. Defaults to the
+      current world's suggestion list — right for every command whose inputs
+      suggestEdges reads (top-level group, layout vectors) did not change.
+      The call site recomputes (via suggestEdges) only when they might have. */
+  suggested?: CavinEdge[],
 ): MutationResult<TAttr> {
-  // Re-derive with the world's own confirmed edges (world.edges also carries
-  // suggestions, which deriveWorld recomputes).
+  // Re-derive with the world's own edge lists (world.edges also carries the
+  // merged renderable view; the two sources split back out here).
   const confirmed = world.edges.filter((e) => e.kind === 'confirmed')
+  const suggestedNext = suggested ?? world.edges.filter((e) => e.kind === 'suggested')
   const derive = (nodes: CavinNode<TAttr>[]): World<TAttr> =>
-    deriveWorld(nodes, adapter, world, confirmed, config)
+    deriveWorld(nodes, adapter, world, confirmed, config, suggestedNext)
 
   switch (cmd.type) {
     case 'add': {
-      const group = nearestLeafGroup(world, cmd.at)
+      const group = nearestGroup(world, cmd.at)
       const groupPath = group ? [...group.path] : []
-      const id = newId()
+      const id = newId(rand)
       const created: CavinNode<TAttr> = {
         id,
         position: [...cmd.at] as [number, number],
@@ -181,7 +138,7 @@ export function applyCommand<TAttr>(
       const radius =
         config.layout.childSpawnRadiusMin + rand() * config.layout.childSpawnRadiusSpread
       const relOffset: [number, number] = [Math.cos(angle) * radius, Math.sin(angle) * radius]
-      const id = newId()
+      const id = newId(rand)
       const created: CavinNode<TAttr> = {
         id,
         parentId: parent.id,
@@ -215,32 +172,37 @@ export function applyCommand<TAttr>(
 
     case 'move': {
       const n = node(world, cmd.id)
-      if (!n || n.state.locked) return { ok: false, error: 'locked-node' }
-      if (!n.state.placed) {
-        // First move detaches the node from its orbit/cluster — full re-derive.
-        const delta: [number, number] = [cmd.to[0] - n.position[0], cmd.to[1] - n.position[1]]
-        if (delta[0] === 0 && delta[1] === 0) return { ok: true }
-        const movable = movableSubtree(world, cmd.id)
-        return {
-          ok: true,
-          world: derive(
-            world.nodes.map((m) => {
-              if (m.id === cmd.id) {
-                return { ...m, position: cmd.to, state: { ...m.state, placed: true } }
+      if (!n) return { ok: false, error: 'missing' }
+      if (n.state.locked) return { ok: false, error: 'locked-node' }
+      // First move detaches the node from its orbit/cluster (`placed: true`);
+      // later moves (the drag fast path) are pure position updates. Both
+      // re-derive — derive is cheap now that suggestions live outside it, and
+      // a full derive keeps every index consistent with nodeById.
+      const delta: [number, number] = [cmd.to[0] - n.position[0], cmd.to[1] - n.position[1]]
+      if (delta[0] === 0 && delta[1] === 0) return { ok: true }
+      const firstDetach = !n.state.placed
+      const movable = subtree(world, cmd.id)
+      return {
+        ok: true,
+        world: derive(
+          world.nodes.map((m) => {
+            if (m.id === cmd.id) {
+              return {
+                ...m,
+                position: cmd.to,
+                state: firstDetach ? { ...m.state, placed: true } : m.state,
               }
-              if (movable.has(m.id)) {
-                return {
-                  ...m,
-                  position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
-                }
+            }
+            if (movable.has(m.id)) {
+              return {
+                ...m,
+                position: [m.position[0] + delta[0], m.position[1] + delta[1]] as [number, number],
               }
-              return m
-            }),
-          ),
-        }
+            }
+            return m
+          }),
+        ),
       }
-      const framed = applyDragFrame(world, cmd.id, cmd.to)
-      return framed ? { ok: true, world: framed } : { ok: true }
     }
 
     case 'reparent': {
@@ -298,9 +260,9 @@ export function applyCommand<TAttr>(
       const n = node(world, cmd.id)
       if (!n) return { ok: false, error: 'missing' }
       if (n.state.locked) return { ok: false, error: 'locked-node' }
-      const doomed = deletableSubtree(world, cmd.id)
+      const doomed = subtree(world, cmd.id)
       // Connections are weak references: prune confirmed edges touching the
-      // deleted subtree (suggested ones are re-derived anyway).
+      // deleted subtree (suggested ones belong to the caller's list).
       const edges = confirmed.filter((e) => !doomed.has(e.from) && !doomed.has(e.to))
       return {
         ok: true,
@@ -310,8 +272,8 @@ export function applyCommand<TAttr>(
           world,
           edges,
           config,
+          suggestedNext,
         ),
-        edges: edges.length === confirmed.length ? undefined : edges,
         notice: { kind: 'deleted', count: doomed.size },
       }
     }
@@ -328,8 +290,7 @@ export function applyCommand<TAttr>(
       ]
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config),
-        edges,
+        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
         notice: { kind: 'edge-confirmed' },
       }
     }
@@ -339,8 +300,7 @@ export function applyCommand<TAttr>(
       if (edges.length === confirmed.length) return { ok: true }
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config),
-        edges,
+        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
         notice: { kind: 'edge-removed' },
       }
     }
