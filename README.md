@@ -63,15 +63,6 @@ mirrors into the URL (`?x=&y=&zoom=`) for shareable views.
 | Search & fly-to | `/` or the search box |
 | Confirm a connection | click ⤳ suggestion in the panel |
 
-## Framework direction — roadmap complete
-
-The migration roadmap (architecture doc, §7) has five phases; all shipped:
-
-- **P1 done** — all tuning constants in one `LayoutConfig`; view/world stores decoupled.
-- **P2 done** — `CavinNode`/`SchemaAdapter` types; `deriveWorld` aggregates generic `world.groups` over `groupPath` (any depth); UI reads fields only through adapter accessors.
-- **P3 done** — `@cavin/core` extracted (`packages/core`): DOM-free, React-free (`lib: ["ES2022"]` only). `CavinNode` is the real node shape (attributes payload + framework state), colors moved behind `adapter.colorOf`, and the store's actions became `applyCommand` calls — the single, serializable mutation funnel.
-- **P4 done** — `@cavin/react` extracted (`packages/react`): store factories + `<CavinCanvas/>` with the adapter injected; per-instance state, so two canvases coexist on one page. `examples/flat-tasks` mounts the same component against a 20-line adapter.
-- **P5 done** — the palace lives at `examples/knowledge-palace`; `examples/sanguo` is a second full example (its legacy preview shim is gone); both packages build ESM+d.ts; the adapter conformance suite (`@cavin/core/testing`) runs against both host adapters.
 
 ## Status
 
