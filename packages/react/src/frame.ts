@@ -59,9 +59,19 @@ export function createFrameHolder(config: LayoutConfig = layoutConfig): FrameHol
 
   return {
     advanceFocus(focusActive) {
-      focusBlend = focusActive
+      const next = focusActive
         ? Math.min(1, focusBlend + (1 - focusBlend) * config.focus.blendRate)
         : 0
+      // Snap to exactly 1 within epsilon so the gather terminates and paint
+      // layers' `focusBlend() < 1` redraw gates clear.
+      const settled = 1 - next < config.focus.blendEpsilon ? 1 : next
+      if (settled === focusBlend) return
+      focusBlend = settled
+      // The holder owns the blend; when it changes every cached scene is
+      // definitionally stale (focusK is a scene input). Invalidate here so
+      // no painter needs to know which hidden inputs require a fresh scene.
+      inputs = null
+      scenes = new Map()
     },
     focusBlend: () => focusBlend,
     setViewport(v) {

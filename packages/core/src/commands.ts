@@ -113,18 +113,22 @@ export function applyCommand<TAttr>(
   adapter: SchemaAdapter<TAttr>,
   config: LayoutConfig = layoutConfig,
   rand: () => number = Math.random,
-  /** Caller-owned machine suggestions for the next world. Defaults to the
-      current world's suggestion list — right for every command whose inputs
-      suggestEdges reads (top-level group, layout vectors) did not change.
-      The call site recomputes (via suggestEdges) only when they might have. */
-  suggested?: CavinEdge[],
+  /** Caller-owned machine suggestions for the next world. Pass the current
+      world's list (the default) when the command cannot change what
+      suggestEdges reads (top-level group, layout vectors); pass a provider
+      `(nodes) => CavinEdge[]` to recompute against the MUTATED nodes — the
+      provider is evaluated per-derive with each case's final node array and
+      never called when a command is rejected. */
+  suggested?: CavinEdge[] | ((nodes: CavinNode<TAttr>[]) => CavinEdge[]),
 ): MutationResult<TAttr> {
   // Re-derive with the world's own edge lists (world.edges also carries the
   // merged renderable view; the two sources split back out here).
   const confirmed = world.edges.filter((e) => e.kind === 'confirmed')
-  const suggestedNext = suggested ?? world.edges.filter((e) => e.kind === 'suggested')
+  const resolveSuggested =
+    typeof suggested === 'function' ? suggested : () => suggested ??
+      world.edges.filter((e) => e.kind === 'suggested')
   const derive = (nodes: CavinNode<TAttr>[]): World<TAttr> =>
-    deriveWorld(nodes, adapter, world, confirmed, config, suggestedNext)
+    deriveWorld(nodes, adapter, world, confirmed, config, resolveSuggested(nodes))
 
   switch (cmd.type) {
     case 'add': {
@@ -288,7 +292,7 @@ export function applyCommand<TAttr>(
           world,
           edges,
           config,
-          suggestedNext,
+          resolveSuggested(world.nodes.filter((m) => !doomed.has(m.id))),
         ),
         notice: { kind: 'deleted', count: doomed.size },
       }
@@ -313,7 +317,7 @@ export function applyCommand<TAttr>(
       const edges = [...confirmed, edge]
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
+        world: deriveWorld(world.nodes, adapter, world, edges, config, resolveSuggested(world.nodes)),
         notice: { kind: 'edge-confirmed' },
       }
     }
@@ -340,7 +344,7 @@ export function applyCommand<TAttr>(
       ]
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
+        world: deriveWorld(world.nodes, adapter, world, edges, config, resolveSuggested(world.nodes)),
         notice: { kind: 'edge-confirmed' },
       }
     }
@@ -350,7 +354,7 @@ export function applyCommand<TAttr>(
       if (edges.length === confirmed.length) return { ok: true }
       return {
         ok: true,
-        world: deriveWorld(world.nodes, adapter, world, edges, config, suggestedNext),
+        world: deriveWorld(world.nodes, adapter, world, edges, config, resolveSuggested(world.nodes)),
         notice: { kind: 'edge-removed' },
       }
     }

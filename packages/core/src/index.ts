@@ -43,7 +43,7 @@ export type {
 } from './ontology'
 export { ontologyRelation, validateRelation, worldToJsonLd } from './ontology'
 export type { CavinStorage, WorldSnapshot } from './storage'
-export { createMemoryCavinStorage, validateRecords } from './storage'
+export { createMemoryCavinStorage, decodeSnapshot, validateRecords } from './storage'
 export {
   labelOf,
   searchTextOf,

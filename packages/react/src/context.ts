@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
-import type { CavinNode, CavinStorage, LayoutConfig, SchemaAdapter, WorldSnapshot } from '@cavin/core'
-import { validateEdgeRecords, validateRecords } from '@cavin/core'
+import type { CavinStorage, LayoutConfig, SchemaAdapter, WorldSnapshot } from '@cavin/core'
+import { decodeSnapshot, validateEdgeRecords } from '@cavin/core'
 import type { ViewStore } from './view-store'
 import type { WorldStore } from './world-store'
 import type { FrameHolder } from './frame'
@@ -44,18 +44,13 @@ export function useCavin<TAttr>(): CavinContextValue<TAttr> {
 
 /**
  * localStorage-backed SNAPSHOT persistence — the whole editable state
- * (`{ nodes, confirmedEdges }`) under one key, validated through
- * `adapter.validate` per record (fail-safe: quota, privacy mode, and corrupt
- * payloads all behave as absent). Absent and empty are distinct: an emptied
- * world reloads empty, not as the seed.
- *
- * Backward compatibility, all automatic on first successful load:
- * - a plain node array (or `{ nodes }`) under the primary key — the first
- *   v4 shape — loads with confirmed edges from the sibling `${key}:edges`
- *   record when present;
- * - `fallbackKeys` (e.g. a pre-framework payload) go through `decodeLegacy`,
- *   the host's `(raw) → snapshot` migration function, before falling back
- *   to the standard parse. The next save writes only the new key.
+ * (`{ nodes, confirmedEdges }`) under one key. Record-shape policy (bare
+ * array, `{ nodes }`, snapshot, legacy alias) lives in the core's
+ * `decodeSnapshot`; this adapter keeps only what is genuinely DOM/host
+ * policy: JSON, key access, the first-v4 sibling `:edges` record, fallback
+ * keys, and the host's legacy migration seam. Fail-safe by contract: quota,
+ * privacy mode, and corrupt payloads all behave as absent. Absent and empty
+ * are distinct: an emptied world reloads empty, not as the seed.
  */
 export function createLocalStorageCavinStorage<TAttr>(
   key: string,
@@ -69,31 +64,16 @@ export function createLocalStorageCavinStorage<TAttr>(
 ): CavinStorage<TAttr> {
   const warn = (msg: string, err?: unknown) => console.warn(msg, err)
 
-  const decodeNodes = (records: unknown): CavinNode<TAttr>[] | null => {
-    const result = validateRecords(records, adapter)
-    if (result && result.dropped > 0) {
-      warn(`[cavin] dropped ${result.dropped} invalid persisted nodes`)
-    }
-    return result?.nodes ?? null
-  }
-
-  /** Parse one raw string into a snapshot. Accepts the snapshot shape, a
-      bare node array (first v4 shape), and `{ nodes, edges }` (legacy v3). */
+  /** Decode one raw string into a snapshot via the core decoder. Returns
+      null for absent/corrupt payloads. */
   const parse = (raw: string | null): WorldSnapshot<TAttr> | null => {
     if (!raw) return null
-    const parsed: unknown = JSON.parse(raw)
-    if (Array.isArray(parsed)) {
-      const nodes = decodeNodes(parsed)
-      return nodes ? { nodes, confirmedEdges: [] } : null
+    const decoded = decodeSnapshot(JSON.parse(raw), adapter)
+    if (!decoded) return null
+    if (decoded.droppedNodes > 0) {
+      warn(`[cavin] dropped ${decoded.droppedNodes} invalid persisted nodes`)
     }
-    if (parsed && typeof parsed === 'object') {
-      const rec = parsed as { nodes?: unknown; confirmedEdges?: unknown; edges?: unknown }
-      const nodes = decodeNodes(rec.nodes)
-      if (!nodes) return null
-      const confirmed = rec.confirmedEdges ?? rec.edges
-      return { nodes, confirmedEdges: validateEdgeRecords(confirmed) }
-    }
-    return null
+    return decoded.snapshot
   }
 
   const readAny = (): WorldSnapshot<TAttr> | null => {
@@ -105,6 +85,7 @@ export function createLocalStorageCavinStorage<TAttr>(
           try {
             const rawEdges = window.localStorage.getItem(`${key}:edges`)
             if (rawEdges) {
+              // The sibling record is a bare edge array, not a snapshot.
               primary.confirmedEdges = validateEdgeRecords(JSON.parse(rawEdges))
             }
           } catch (err) {

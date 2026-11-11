@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { hsla, groupsByDepth, lodLevels, roomMorph, roomRadiusEase } from '@cavin/core'
+import { hsla, groupsByDepth, lodLevels, roomRadiusEase } from '@cavin/core'
 import type { GroupCluster } from '@cavin/core'
 import { useCavin } from '../context'
 import { paletteMemo } from '../presentation'
@@ -68,15 +68,13 @@ export function DotsCanvas() {
       const confirmedEdges = world.edges.filter((e) => e.kind === 'confirmed')
       // The scene IS the frame: one shared morph cache (see the contract on
       // Scene.morphs), one visibility walk, screen positions ready to paint.
-      // Cull padding = dot radius.
+      // Cull padding = dot radius. Display positions (constellation-blended)
+      // come from the scene itself — no per-layer blend math.
       const scene = frame.scene(world, cam, zCards, selectedId, { w, h }, config.scene.dotMargin)
-      const { entries, morphs } = scene
+      const { entries } = scene
       const sx = (wx: number) => scene.project(wx, 0)[0]
       const sy = (wy: number) => scene.project(0, wy)[1]
-      const morphOf = (id: string) => {
-        const n = world.nodeById.get(id)!
-        return roomMorph(world, n, cam.zoom, cam, zCards, morphs, config)
-      }
+      const dispOf = (id: string): [number, number] => scene.displayOf(id)
 
       // Selection spotlight: confirmed edges touching the selected node are
       // drawn brighter, thicker and on top — with their relation labels.
@@ -106,13 +104,6 @@ export function DotsCanvas() {
       // itself never moves.
       hadFocus = focus != null
       const focusK = scene.focusK
-      const ringTargets = scene.ringTargets
-      const dispOf = (id: string): [number, number] => {
-        const base = (morphs.get(id) ?? morphOf(id)).pos
-        const t = ringTargets.get(id)
-        if (!t) return base
-        return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
-      }
       // Focus overrides the zoom gates: the constellation's dots and arcs
       // stay on screen at any zoom, with dots at a constant screen size.
       const dotsLv = focus ? Math.max(lv.dots, focusK) : lv.dots
@@ -245,10 +236,9 @@ export function DotsCanvas() {
           const parent = world.nodeById.get(n.parentId)
           if (!parent) continue
           // A visible unplaced child's ancestors are already in the cache;
-          // a placed child's parent may not be — compute it on demand.
-          const pm = morphs.get(parent.id) ?? morphOf(parent.id)
+          // a placed child's parent may not be — the scene resolves it.
           const cdp = focus ? dispOf(n.id) : m.pos
-          const pdp = focus ? dispOf(parent.id) : pm.pos
+          const pdp = focus ? dispOf(parent.id) : scene.displayOf(parent.id)
           const dist =
             Math.hypot(cdp[0] - pdp[0], cdp[1] - pdp[1]) * cam.zoom
           if (dist <= 3) continue
