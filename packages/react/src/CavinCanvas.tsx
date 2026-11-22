@@ -99,6 +99,16 @@ export function CavinCanvas<TAttr>(props: CavinCanvasProps<TAttr>) {
 
   useEffect(() => syncSelection(value.view, stores.world), [value.view, stores.world])
 
+  // Teardown: selection sync AND the world store's session subscriptions
+  // (persistence timer, external-storage listener) plus any pending editor
+  // frame — nothing survives unmount.
+  useEffect(
+    () => () => {
+      stores.world.getState().dispose()
+    },
+    [stores.world],
+  )
+
   return (
     <CavinContext.Provider value={{ ...value, ...stores } as unknown as CavinContextValue}>
       <ErrorBoundary>

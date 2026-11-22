@@ -54,7 +54,7 @@ function computeBounds(positions: readonly [number, number][]): MapBounds {
  * Click/drag jumps the camera there. Redrawn every frame.
  */
 export function Minimap() {
-  const { adapter, view: useView, world: useWorld, config } = useCavin()
+  const { adapter, view: useView, world: useWorld, config, frame } = useCavin()
   const ref = useRef<HTMLCanvasElement>(null)
   const dragging = useRef(false)
   // Per-instance world→map transform: written by the draw loop each frame,
@@ -155,8 +155,12 @@ export function Minimap() {
         )
       }
 
-      const vw = window.innerWidth / cam.zoom
-      const vh = window.innerHeight / cam.zoom
+      // The viewport rectangle comes from the frame holder's viewport — the
+      // same source every other layer reads — so an embedded canvas smaller
+      // than the window draws the rectangle correctly.
+      const vp = frame.getViewport()
+      const vw = (vp.w || window.innerWidth) / cam.zoom
+      const vh = (vp.h || window.innerHeight) / cam.zoom
       ctx.strokeStyle = 'rgba(230, 238, 250, 0.85)'
       ctx.lineWidth = 1
       ctx.strokeRect(
@@ -168,7 +172,7 @@ export function Minimap() {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [adapter, useView, useWorld])
+  }, [adapter, useView, useWorld, frame])
 
   const jump = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const rect = ref.current!.getBoundingClientRect()

@@ -4,7 +4,6 @@ import {
   bodyOf,
   chipOpacity,
   labelOf,
-  roomMorph,
   roomRadius,
   roomRadiusEase,
   subtree,
@@ -160,7 +159,7 @@ export function NodeLabelLayer() {
       const vp = frame.getViewport()
       const { w, h } = vp
       const scene = frame.scene(world, cam, zCards, selectedId, vp, config.scene.labelMargin)
-      const { entries, focus, focusK, ringTargets, morphs } = scene
+      const { entries, focus, focusK } = scene
       // Focus mode overrides the zoom gate: the constellation's names stay
       // readable even zoomed all the way out.
       const band = focus ? Math.max(chipOpacity(cam.zoom, zRooms, config), focusK) : chipOpacity(cam.zoom, zRooms, config)
@@ -201,14 +200,7 @@ export function NodeLabelLayer() {
       // screen positions ready, constellation members pulled in from
       // off-screen flagged on their entries. In focus mode the spotlight set
       // is the whole guest list: everyone else's name leaves the screen.
-      const morphOf = (id: string) =>
-        roomMorph(world, world.nodeById.get(id)!, cam.zoom, cam, zCards, morphs, config)
-      const dispOf = (id: string, m?: (typeof entries)[number]['morph']): [number, number] => {
-        const base = (m ?? morphOf(id)).pos
-        const t = ringTargets.get(id)
-        if (!t) return base
-        return [base[0] + (t[0] - base[0]) * focusK, base[1] + (t[1] - base[1]) * focusK]
-      }
+      // Display positions (constellation-blended) come from the scene.
       const candidates: Label<unknown>[] = []
       for (const e of entries) {
         const n = e.node
@@ -225,7 +217,7 @@ export function NodeLabelLayer() {
         }
         if (focus) open = 1
 
-        const pos = dispOf(n.id, m)
+        const pos = e.dpos
         const [sx, sy] = scene.project(pos[0], pos[1])
         const passing = m.pass > 0.5
         // No room nameplates in focus mode — every member's chip hugs its
@@ -453,10 +445,13 @@ export function NodeLabelLayer() {
       let bestLabeledD = DROP_RADIUS
       let bestAny: string | null = null
       let bestAnyD = DROP_RADIUS
-      for (const { node: n, morph: m } of sc.entries) {
+      for (const { node: n } of sc.entries) {
         if (n.id === drag.nodeId || n.state.locked || drag.descendants?.has(n.id)) continue
-        if (n.parentId && !n.state.placed && m.open < 0.3) continue // folded away — invisible
-        const [sx, sy] = sc.project(m.pos[0], m.pos[1])
+        if (n.parentId && !n.state.placed && sc.morphs.get(n.id)!.open < 0.3) continue // folded away — invisible
+        // Hit-test the DISPLAY position (constellation-blended), so drop
+        // targets agree with where the chip is painted in focus mode.
+        const dp = sc.displayOf(n.id)
+        const [sx, sy] = sc.project(dp[0], dp[1])
         if (sx < -DROP_RADIUS || sx > w + DROP_RADIUS || sy < -DROP_RADIUS || sy > h + DROP_RADIUS)
           continue
         const d = Math.hypot(sx - clientX, sy - clientY)
@@ -523,6 +518,17 @@ export function NodeLabelLayer() {
       }
     }
 
+    /** Cancellation is not completion: discard the buffered move, fire no
+        structural command. The store settles/cancels the editor buffer. */
+    const abortDrag = (e: PointerEvent) => {
+      if (drag.pointerId !== e.pointerId) return
+      drag.dragging = false
+      drag.pointerId = 0
+      drag.targetId = null
+      drag.descendants = null
+      useWorld.getState().cancelDrag()
+    }
+
     const onClick = (e: MouseEvent) => {
       const el = chipOf(e.target)
       if (!el) return
@@ -564,7 +570,7 @@ export function NodeLabelLayer() {
     layer.addEventListener('pointerdown', onPointerDown)
     layer.addEventListener('pointermove', onPointerMove)
     layer.addEventListener('pointerup', endDrag)
-    layer.addEventListener('pointercancel', endDrag)
+    layer.addEventListener('pointercancel', abortDrag)
     layer.addEventListener('click', onClick)
     layer.addEventListener('dblclick', onDoubleClick)
     layer.addEventListener('pointerover', onOver)
@@ -576,7 +582,7 @@ export function NodeLabelLayer() {
       layer.removeEventListener('pointerdown', onPointerDown)
       layer.removeEventListener('pointermove', onPointerMove)
       layer.removeEventListener('pointerup', endDrag)
-      layer.removeEventListener('pointercancel', endDrag)
+      layer.removeEventListener('pointercancel', abortDrag)
       layer.removeEventListener('click', onClick)
       layer.removeEventListener('dblclick', onDoubleClick)
       layer.removeEventListener('pointerover', onOver)
